@@ -98,7 +98,10 @@ func (s *Service) CreateAuction(ctx context.Context, req *connect.Request[v1.Cre
 }
 func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuctionRequest]) (*connect.Response[v1.BidAuctionResponse], error) {
 	input := req.Msg
-	userId := ctx.Value(auth.UserIDKey).(string)
+	userId, ok := ctx.Value(auth.UserIDKey).(string)
+	if !ok || userId == "" {
+		return nil, helper.RpcError(connect.CodeUnauthenticated, "Missing user authentication")
+	}
 
 	buyer_id, err := helper.ParsedStringToUUID(userId)
 	if err != nil {
@@ -109,7 +112,9 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		return nil, err
 	}
 	bidAmount := int32(input.Amount)
-
+	if bidAmount <= 0 {
+		return nil, helper.RpcError(connect.CodeInvalidArgument, "Bid amount must be positive")
+	}
 	// ─────────────────────────────────────────────
 	tx, err := s.store.Pool.Begin(ctx)
 	if err != nil {
@@ -180,7 +185,7 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 			AuctionID: auction_id,
 			UserID:    buyer_id,
 			Amount:    payAmount,
-			IsAutoBid: input.IsAutoBid,
+			IsAutoBid: false,
 		})
 		if err != nil {
 			return nil, helper.RpcError(connect.CodeInternal, "Failed to create bid")
@@ -199,7 +204,7 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		if err != nil {
 			return nil, helper.RpcError(connect.CodeInternal, "Failed to create winner of auction")
 		}
-
+		newBid.Status = db.BidStatusWon
 		_, err = qtx.UpdateAuctionStatus(ctx, db.UpdateAuctionStatusParams{
 			Status: db.AuctionStatusEnded,
 			ID:     auction_id,
