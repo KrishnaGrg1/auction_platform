@@ -19,8 +19,11 @@ go.work
 # Generated code
 gen/
 
-# Buf lock file
-buf.lock
+# Proto definitions are source code, not generated
+# !auction_platform/
+
+# Buf lock file (keep it in git for reproducible builds)
+# buf.lock
 
 # Environment variables
 .env

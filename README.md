@@ -1,162 +1,214 @@
 # Auction Platform
 
-A modern auction platform built with Go and ConnectRPC.
+A real-time auction platform supporting **English** and **Dutch** auctions, built with Go, ConnectRPC, PostgreSQL, and WebSocket (planned).
+
+## Features
+
+- 🔐 **Authentication** - JWT-based auth with email verification
+- 🎯 **English Auctions** - Traditional ascending-bid auctions with time extensions
+- 🇳🇱 **Dutch Auctions** - Descending-price auctions that end on first bid
+- 💰 **Balance Management** - User wallets with available/held balance tracking
+- 📊 **Bid History** - Complete audit trail of all auction events
+- 🔒 **Transaction Safety** - ACID-compliant with row-level locking
 
 ## Prerequisites
 
-- Go 1.25.0 or later
-- Buf CLI (`brew install bufbuild/buf/buf` or see [buf.build](https://buf.build))
-- Protocol Buffers compiler (optional, buf handles code generation)
+- **Go 1.25+**
+- **PostgreSQL 15+**
+- **buf** - `go install github.com/bufbuild/buf/cmd/buf@latest`
+- **sqlc** - `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`
+- **goose** - `go install github.com/pressly/goose/v3/cmd/goose@latest`
 
-## Setup
+## Quick Setup
 
-1. **Install dependencies:**
-   ```bash
-   make deps
-   ```
+```bash
+# 1. Clone and install dependencies
+git clone <repo-url>
+cd auction_platform
+go mod download
 
-2. **Generate ConnectRPC code:**
-   ```bash
-   make generate
-   ```
+# 2. Set up environment variables
+cp .env.example .env
+# Edit .env with your database credentials
 
-3. **Run the server:**
-   ```bash
-   make run
-   ```
+# 3. Run database migrations
+goose up
 
-The server will start on port 8080 (or the port specified in `PORT` environment variable).
+# 4. Generate code
+buf generate
+sqlc generate
+
+# 5. Run the server
+go run services/auction/main.go 
+go run services/auth/main.go
+```
+
+Server starts on `http://localhost:8080`
 
 ## Project Structure
 
 ```
-.
-├── auction_platform/       # Proto definitions
-│   └── v1/
-│       └── auth.proto     # Auth service definitions
-├── cmd/
-│   └── server/            # Server entry point
-│       └── main.go
+auction_platform/
+├── auction_platform/v1/     # Proto definitions (SOURCE CODE - commit to git)
+│   ├── auction.proto        # Auction service API
+│   └── auth.proto           # Auth service API
+├── gen/                     # Generated code (DO NOT EDIT, gitignored)
+│   └── auction_platform/v1/ # Generated Go code from protos
 ├── internal/
-│   ├── db/                # Database queries (sqlc)
-│   └── services/          # Service implementations
-│       └── auth_service.go
-├── gen/                   # Generated code (gitignored)
-│   └── auction_platform/
-│       └── v1/
-├── migrations/            # Database migrations
-├── scripts/               # Utility scripts
-├── buf.yaml              # Buf configuration
-├── buf.gen.yaml          # Code generation config
-└── Makefile              # Build targets
-
+│   ├── auth/                # JWT & middleware
+│   ├── db/
+│   │   ├── queries/         # SQL queries (SOURCE CODE)
+│   │   └── sqlc/            # Generated database code
+│   └── store/               # Database connection pool
+├── services/                # Service implementations
+│   ├── auth/                # Auth service handlers
+│   └── auction/             # Auction service handlers
+├── migrations/              # Database migrations (goose)
+├── buf.yaml                 # Buf configuration
+├── buf.gen.yaml             # Protobuf generation config
+└── sqlc.yaml                # SQLC configuration
 ```
 
-## Available Commands
+## Common Commands
 
-- `make help` - Show available commands
-- `make generate` - Generate ConnectRPC code from proto files
-- `make lint` - Lint proto files
-- `make build` - Build the server binary
-- `make run` - Run the server
-- `make clean` - Clean generated files
-- `make test` - Run tests
-- `make buf-update` - Update buf dependencies
+### Code Generation
+
+```bash
+# Lint proto files
+buf lint
+
+# Generate protobuf code
+buf generate
+
+# Generate database code
+sqlc generate
+```
+
+### Database Migrations
+
+```bash
+# Set your database URL
+export DATABASE_URL="postgres://user:pass@localhost:5432/auction_platform"
+
+# Run all pending migrations
+goose -dir migrations postgres "$DATABASE_URL" up
+
+# Rollback last migration
+goose -dir migrations postgres "$DATABASE_URL" down
+
+# Create new migration
+goose -dir migrations create migration_name sql
+```
+
+### Running & Testing
+
+```bash
+# Run server
+go run cmd/server/main.go
+
+# Run tests
+go test ./...
+
+# Run with race detector
+go test -race ./...
+```
 
 ## API Services
 
 ### AuthService
 
-The authentication service provides:
+- **Register** - Create new user account
+- **Login** - Authenticate and get JWT token  
+- **Verify** - Verify email with OTP code
 
-- **Register** - User registration with email/password
-  - Validates: first_name (1-50 chars), last_name (1-50 chars), email, password (8-100 chars)
-  
-- **Verify** - Email verification with 6-digit code
-  - Validates: user_id (UUID), code (6 digits)
-  
-- **Login** - User login
-  - Validates: email, password (8-100 chars)
+### AuctionService
 
-## ConnectRPC Details
+- **CreateAuction** - Create new auction (English/Dutch)
+- **BidAuction** - Place a bid on active auction
+- **GetAuctionDetailsById** - Get auction details
+- **GetAuctionsList** - List auctions with filters/pagination
+- **GetUserAuctions** - Get user's auctions
+- **EndAuction** - Manually end an auction
+- **CancelAuction** - Cancel a scheduled auction
 
-This project uses [ConnectRPC](https://connectrpc.com/), which provides:
 
-- **HTTP/1.1 and HTTP/2 support** - Works with curl, browsers, and gRPC clients
-- **JSON and binary protocols** - Flexible serialization
-- **Type-safe clients** - Generated TypeScript/Swift/Kotlin clients
-- **Streaming support** - Server, client, and bidirectional streaming
-- **Built-in validation** - Using protovalidate
+## Auction Types
 
-## Testing the API
+### English Auction
+- **Ascending price** - Bids must be higher than current price
+- **Multiple bids** - Accepts bids until time expires
+- **Time extension** - Can extend time on late bids
+- **Winner** - Highest bidder when time runs out
 
-### Using curl:
-
-```bash
-# Register a new user
-curl -X POST http://localhost:8080/auction_platform.v1.AuthService/Register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "first_name": "John",
-    "last_name": "Doe",
-    "email": "john@example.com",
-    "password": "securepass123"
-  }'
-
-# Verify email
-curl -X POST http://localhost:8080/auction_platform.v1.AuthService/Verify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "550e8400-e29b-41d4-a716-446655440000",
-    "code": "123456"
-  }'
-
-# Login
-curl -X POST http://localhost:8080/auction_platform.v1.AuthService/Login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "john@example.com",
-    "password": "securepass123"
-  }'
-```
+### Dutch Auction  
+- **Descending price** - Price drops at intervals
+- **First bid wins** - Ends immediately on first bid
+- **No extensions** - Single bid mechanism
+- **Winner** - First person to accept the price
 
 ## Environment Variables
 
-Create a `.env` file in the project root:
-
 ```env
 PORT=8080
-DATABASE_URL=postgres://user:pass@localhost:5432/auction_platform
-JWT_SECRET=your-secret-key
+DATABASE_URL=postgres://user:password@localhost:5432/auction_platform?sslmode=disable
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
 ```
 
-## Development
+## Development Workflow
 
-When you modify proto files:
+```bash
+# 1. Edit proto files in auction_platform/v1/
+# 2. Lint proto files
+buf lint
 
-1. Update the `.proto` file in `auction_platform/v1/`
-2. Run `make generate` to regenerate code
-3. Update service implementations in `internal/services/`
-4. Run `make lint` to check proto file quality
+# 3. Generate protobuf code
+buf generate
 
-## Proto Validation
+# 4. Edit SQL queries in internal/db/queries/
+# 5. Generate database code
+sqlc generate
 
-Input validation is handled automatically using protovalidate constraints in the `.proto` files:
+# 6. Implement handlers in services/
+# 7. Test
+go test ./...
 
-- Email validation
-- String length constraints
-- UUID format validation
-- Numeric patterns (verification codes)
+# 8. Run
+go run cmd/server/main.go
+```
 
-No manual validation code needed!
+## Important Notes
 
-## Next Steps
+### About `auction_platform/v1/`
+**DO NOT gitignore this directory!** These are your **source proto files**, not generated code. Only `gen/` is generated.
 
-- [ ] Implement database layer (PostgreSQL with sqlc)
-- [ ] Add JWT token generation and validation
-- [ ] Implement email sending for verification codes
-- [ ] Add password hashing (bcrypt)
-- [ ] Add middleware for authentication
-- [ ] Write unit and integration tests
-- [ ] Add more services (Auction, Bid, Payment, etc.)
-- [ ] Set up CI/CD pipeline
+### About `buf.lock`
+Keep `buf.lock` in version control for reproducible builds.
+
+## Technology Stack
+
+- **Go 1.25** - Backend language
+- **ConnectRPC** - gRPC-compatible HTTP/JSON API
+- **PostgreSQL 15+** - Database with pgx driver
+- **buf** - Protobuf code generation
+- **sqlc** - Type-safe SQL code generation
+- **goose** - Database migrations
+- **JWT** - Authentication tokens
+
+## Roadmap
+
+- [x] Auth service (register, login, verify)
+- [x] English auction implementation
+- [x] Dutch auction implementation  
+- [x] Bid history tracking
+- [x] User balance management
+- [ ] WebSocket for real-time updates
+- [ ] Scheduled auction start/end
+- [ ] Dutch auction price drop scheduler
+- [ ] Email notifications
+- [ ] Payment integration
+- [ ] Admin panel
+- [ ] Web frontend
+
+## License
+
+MIT
