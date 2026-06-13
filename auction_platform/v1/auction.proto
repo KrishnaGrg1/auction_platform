@@ -1,0 +1,265 @@
+syntax = "proto3";
+
+package auction_platform.v1;
+
+option go_package = "github.com/KrishnaGrg1/auction_platform/gen/auction_platform/v1;auction_platformv1";
+
+
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+service AuctionService {
+    rpc CreateAuction(CreateAuctionRequest) returns (CreateAuctionResponse);
+    rpc BidAuction(BidAuctionRequest) returns (BidAuctionResponse);
+    rpc GetAuctionDetailsById(GetAuctionDetailsByIdRequest) returns (GetAuctionDetailsByIdResponse);
+    rpc GetAuctionsList(GetAuctionsListRequest) returns (GetAuctionsListResponse);
+    rpc GetUserAuctions(GetUserAuctionsRequest) returns (GetUserAuctionsResponse);
+    rpc EndAuction(EndAuctionRequest) returns (EndAuctionResponse);
+    rpc CancelAuction(CancelAuctionRequest) returns (CancelAuctionResponse);
+}
+
+message Auction {
+  string id = 1;
+  string seller_id = 2;
+  string current_bidder_id = 3;
+
+  string title = 4;
+  string description = 5;
+
+  AuctionType type = 6;
+  AuctionStatus status = 7;
+
+  // prices in cents
+  int64 starting_price = 8;
+  int64 reserved_price = 9;
+  int64 current_price = 10;
+
+  // Dutch auction only (NULL / 0 for English)
+  int64 drop_amount = 11;
+  int32 drop_interval = 12; // seconds between each price drop
+  google.protobuf.Timestamp last_drop_time = 13;
+
+  bool extend_on_bid = 14;
+  int32 extend_minutes = 15;
+
+  google.protobuf.Timestamp start_time = 16;
+  google.protobuf.Timestamp end_time = 17;
+  google.protobuf.Timestamp original_end_time = 18;
+
+  google.protobuf.Timestamp created_at = 19;
+  google.protobuf.Timestamp updated_at = 20;
+}
+
+enum AuctionType {
+  AUCTION_TYPE_UNSPECIFIED = 0;
+  AUCTION_TYPE_ENGLISH = 1;
+  AUCTION_TYPE_DUTCH = 2;
+}
+
+enum AuctionStatus {
+  AUCTION_STATUS_UNSPECIFIED = 0;
+  AUCTION_STATUS_SCHEDULED = 1;
+  AUCTION_STATUS_ACTIVE = 2;
+  AUCTION_STATUS_ENDED = 3;
+  AUCTION_STATUS_CANCELLED = 4;
+}
+
+// create auction
+message CreateAuctionRequest {
+  string title = 2 [
+    (buf.validate.field).string = {
+      min_len: 1,
+      max_len: 200
+    }
+  ];
+
+  string description = 3 [
+    (buf.validate.field).string = {
+      min_len: 1,
+      max_len: 2000
+    }
+  ];
+
+  AuctionType type = 4 [
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: [0]
+    }
+  ];
+
+  int64 starting_price = 5 [
+    (buf.validate.field).int64.gte = 0
+  ];
+
+  int64 reserved_price = 6 [
+    (buf.validate.field).int64.gte = 0
+  ];
+
+  // Dutch auction only
+  int64 drop_amount = 7 [
+    (buf.validate.field).int64.gte = 0
+  ];
+
+  int32 drop_interval = 8 [
+    (buf.validate.field).int32.gt = 0
+  ];
+
+  bool extend_on_bid = 9;
+
+  int32 extend_minutes = 10 [
+    (buf.validate.field).int32.gte = 0
+  ];
+
+  google.protobuf.Timestamp start_time = 11 [
+    (buf.validate.field).required = true
+  ];
+
+  google.protobuf.Timestamp end_time = 12 [
+    (buf.validate.field).required = true
+  ];
+}
+
+message CreateAuctionResponse{
+    Auction auction = 1;
+    string message = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+
+// create BidAuction
+enum BidStatus {
+  BID_STATUS_UNSPECIFIED = 0;
+  BID_STATUS_ACTIVE = 1;
+  BID_STATUS_OUTBID = 2;
+  BID_STATUS_WON = 3;
+  BID_STATUS_LOST = 4;
+  BID_STATUS_REFUNDED = 5;
+}
+
+message Bid {
+  string id = 1;
+  string auction_id = 2;
+  string user_id = 3;
+
+  // amount in cents
+  int64 amount = 4;
+
+  BidStatus status = 5;
+
+  bool is_auto_bid = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message BidAuctionRequest {
+  string auction_id = 1 [
+    (buf.validate.field).string.uuid = true
+  ];
+
+  string user_id = 2 [
+    (buf.validate.field).string.uuid = true
+  ];
+
+  int64 amount = 3 [
+    (buf.validate.field).int64.gt = 0
+  ];
+
+  bool is_auto_bid = 4;
+}
+
+message BidAuctionResponse {
+  Bid bid = 1;
+  string message = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// GetAuctionDetailsById
+message GetAuctionDetailsByIdRequest{
+    string auction_id = 1 [
+      (buf.validate.field).string.uuid = true
+    ];
+}
+message GetAuctionDetailsByIdResponse{
+    Auction auction = 1;
+    string message = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+// GetAuctionsList
+message GetAuctionsListRequest{
+    AuctionStatus status = 1;
+    AuctionType type = 2;
+    int32 page = 3 [
+      (buf.validate.field).int32.gte = 1
+    ];
+    int32 page_size = 4 [
+      (buf.validate.field).int32 = {
+        gte: 1,
+        lte: 100
+      }
+    ];
+}
+
+message GetAuctionsListResponse{
+    repeated Auction auctions = 1;
+    int32 total_count = 2;
+    int32 page = 3;
+    int32 page_size = 4;
+    string message = 5;
+    google.protobuf.Timestamp timestamp = 6;
+}
+
+// GetUserAuctions
+message GetUserAuctionsRequest{
+    string user_id = 1 [
+      (buf.validate.field).string.uuid = true
+    ];
+    int32 page = 2 [
+      (buf.validate.field).int32.gte = 1
+    ];
+    int32 page_size = 3 [
+      (buf.validate.field).int32 = {
+        gte: 1,
+        lte: 100
+      }
+    ];
+}
+
+message GetUserAuctionsResponse{
+    repeated Auction auctions = 1;
+    int32 total_count = 2;
+    int32 page = 3;
+    int32 page_size = 4;
+    string message = 5;
+    google.protobuf.Timestamp timestamp = 6;
+}
+
+// EndAuction
+message EndAuctionRequest{
+    string auction_id = 1 [
+      (buf.validate.field).string.uuid = true
+    ];
+}
+
+message EndAuctionResponse{
+    Auction auction = 1;
+    string message = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+// CancelAuction
+message CancelAuctionRequest{
+    string auction_id = 1 [
+      (buf.validate.field).string.uuid = true
+    ];
+    string seller_id = 2 [
+      (buf.validate.field).string.uuid = true
+    ];
+}
+
+message CancelAuctionResponse{
+    Auction auction = 1;
+    string message = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
