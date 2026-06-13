@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -12,6 +11,7 @@ import (
 	v1 "github.com/KrishnaGrg1/auction_platform/gen/auction_platform/v1"
 	"github.com/KrishnaGrg1/auction_platform/internal/auth"
 	db "github.com/KrishnaGrg1/auction_platform/internal/db/sqlc"
+	"github.com/KrishnaGrg1/auction_platform/internal/helper"
 	"github.com/KrishnaGrg1/auction_platform/internal/store"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
@@ -29,9 +29,6 @@ func New(store *store.Store, jwt *auth.JWTManager) *Service {
 		jwt:   jwt,
 	}
 }
-func rpcError(code connect.Code, message string) error {
-	return connect.NewError(code, errors.New(message))
-}
 func (s *Service) Register(ctx context.Context, req *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
 	input := req.Msg
 	existingUser, err := s.store.Queries.GetUserByEmail(ctx, input.Email)
@@ -39,7 +36,7 @@ func (s *Service) Register(ctx context.Context, req *connect.Request[v1.Register
 		return nil, err
 	}
 	if existingUser.Email != "" {
-		return nil, rpcError(connect.CodeAlreadyExists, "Email already exists")
+		return nil, helper.RpcError(connect.CodeAlreadyExists, "Email already exists")
 	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), 10)
 	if err != nil {
@@ -92,20 +89,20 @@ func (s *Service) Login(ctx context.Context, req *connect.Request[v1.LoginReques
 	input := req.Msg
 	existingUser, err := s.store.Queries.GetUserByEmail(ctx, input.Email)
 	if err != nil {
-		return nil, rpcError(connect.CodeNotFound, "invalid email or password")
+		return nil, helper.RpcError(connect.CodeNotFound, "invalid email or password")
 	}
 	if existingUser.Email == "" {
-		return nil, rpcError(connect.CodeNotFound, "User not exists")
+		return nil, helper.RpcError(connect.CodeNotFound, "User not exists")
 	}
 	if existingUser.IsVerified == false {
-		return nil, rpcError(connect.CodePermissionDenied, "Email not verified")
+		return nil, helper.RpcError(connect.CodePermissionDenied, "Email not verified")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(existingUser.Password), []byte(input.Password)); err != nil {
-		return nil, rpcError(connect.CodeUnauthenticated, "Incorrect password")
+		return nil, helper.RpcError(connect.CodeUnauthenticated, "Incorrect password")
 	}
 	token, err := s.jwt.GenerateToken(existingUser.ID.String(), existingUser.Email)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "Fail to generate token")
+		return nil, helper.RpcError(connect.CodeInternal, "Fail to generate token")
 	}
 	return connect.NewResponse(&v1.LoginResponse{
 		Token: token,
@@ -129,31 +126,31 @@ func (s *Service) VerifyUser(ctx context.Context, req *connect.Request[v1.Verify
 	input := req.Msg
 	var parsedUserId pgtype.UUID
 	if err := parsedUserId.Scan(input.UserId); err != nil {
-		return nil, rpcError(connect.CodeInvalidArgument, "invalid user id")
+		return nil, helper.RpcError(connect.CodeInvalidArgument, "invalid user id")
 	}
 	//1. GetUserById
 	existingUser, err := s.store.Queries.GetUserByID(ctx, parsedUserId)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "User not found")
+		return nil, helper.RpcError(connect.CodeInternal, "User not found")
 	}
 	//2. Get valid otp
 	otp, err := s.store.Queries.GetValidOTPByUserId(ctx, parsedUserId)
 	if err != nil {
-		return nil, rpcError(connect.CodeNotFound, "OTP not found or expired")
+		return nil, helper.RpcError(connect.CodeNotFound, "OTP not found or expired")
 	}
 	// 3. check otp
 	if otp.Code != input.Code {
-		return nil, rpcError(connect.CodeInvalidArgument, "incorrect OTP")
+		return nil, helper.RpcError(connect.CodeInvalidArgument, "incorrect OTP")
 	}
 	// 4. verify User
 	_, err = s.store.Queries.VerifyUser(ctx, existingUser.Email)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "Failed to verify User")
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to verify User")
 	}
 	// 5. mark otp used
 	err = s.store.Queries.MarkOTPUsed(ctx, parsedUserId)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "failed to mark OTP used")
+		return nil, helper.RpcError(connect.CodeInternal, "failed to mark OTP used")
 	}
 	// 6. delete all otp which has been expired
 	go func() {
@@ -163,7 +160,7 @@ func (s *Service) VerifyUser(ctx context.Context, req *connect.Request[v1.Verify
 	// 7. generate token
 	token, err := s.jwt.GenerateToken(input.UserId, existingUser.Email)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "Failed to generate token")
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to generate token")
 	}
 	return connect.NewResponse(&v1.VerifyResponse{
 			Token: token,

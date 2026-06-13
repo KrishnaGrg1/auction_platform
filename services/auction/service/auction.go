@@ -2,13 +2,13 @@ package service
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"connectrpc.com/connect"
 	v1 "github.com/KrishnaGrg1/auction_platform/gen/auction_platform/v1"
 	"github.com/KrishnaGrg1/auction_platform/internal/auth"
 	db "github.com/KrishnaGrg1/auction_platform/internal/db/sqlc"
+	"github.com/KrishnaGrg1/auction_platform/internal/helper"
 	"github.com/KrishnaGrg1/auction_platform/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -26,16 +26,13 @@ func New(store *store.Store, jwt *auth.JWTManager) *Service {
 		jwt:   jwt,
 	}
 }
-func rpcError(code connect.Code, message string) error {
-	return connect.NewError(code, errors.New(message))
-}
 
 func (s *Service) CreateAuction(ctx context.Context, req *connect.Request[v1.CreateAuctionRequest]) (*connect.Response[v1.CreateAuctionResponse], error) {
 	userId := ctx.Value(auth.UserIDKey).(string)
 	input := req.Msg
 	parsedUserId, err := uuid.Parse(userId)
 	if err != nil {
-		return nil, rpcError(connect.CodeInvalidArgument, "invalid user id")
+		return nil, helper.RpcError(connect.CodeInvalidArgument, "invalid user id")
 	}
 	seller_id := pgtype.UUID{
 		Bytes: parsedUserId, // Copies the underlying [16]byte array natively
@@ -43,10 +40,10 @@ func (s *Service) CreateAuction(ctx context.Context, req *connect.Request[v1.Cre
 	}
 	exisitingUser, err := s.store.Queries.GetUserByID(ctx, seller_id)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "User not found")
+		return nil, helper.RpcError(connect.CodeInternal, "User not found")
 	}
 	if exisitingUser.Email == "" {
-		return nil, rpcError(connect.CodeInternal, "User not found")
+		return nil, helper.RpcError(connect.CodeInternal, "User not found")
 	}
 
 	// Build auction parameters based on type
@@ -67,14 +64,14 @@ func (s *Service) CreateAuction(ctx context.Context, req *connect.Request[v1.Cre
 	// For Dutch auction, add drop parameters
 	if input.Type == v1.AuctionType_AUCTION_TYPE_DUTCH {
 		if input.DropAmount <= 0 || input.DropInterval <= 0 {
-			return nil, rpcError(connect.CodeInvalidArgument, "Dutch auction requires drop_amount and drop_interval")
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "Dutch auction requires drop_amount and drop_interval")
 		}
 		auctionParams.DropAmount = pgtype.Int4{Int32: int32(input.DropAmount), Valid: true}
 		auctionParams.DropInterval = pgtype.Int4{Int32: input.DropInterval, Valid: true}
 	}
 	newAuction, err := s.store.Queries.CreateAuction(ctx, auctionParams)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "Failed to create auction")
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to create auction")
 	}
 
 	return connect.NewResponse(&v1.CreateAuctionResponse{
@@ -103,168 +100,137 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 	input := req.Msg
 	userId := ctx.Value(auth.UserIDKey).(string)
 
-	buyer_id, err := parsedStringToUUId(userId)
+	buyer_id, err := helper.ParsedStringToUUID(userId)
 	if err != nil {
 		return nil, err
 	}
-	auction_id, err := parsedStringToUUId(input.AuctionId)
+	auction_id, err := helper.ParsedStringToUUID(input.AuctionId)
 	if err != nil {
 		return nil, err
 	}
 
-	// Start transaction
-	tx, err := s.store.Pool.Begin(ctx)
+	existingAuction, err := s.store.Queries.GetAuctionByID(ctx, auction_id)
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "failed to start transaction")
-	}
-	defer tx.Rollback(ctx)
-
-	qtx := s.store.Queries.WithTx(tx)
-
-	// Lock user and auction for update
-	_, err = qtx.LockUserByID(ctx, buyer_id)
-	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "failed to lock user")
+		return nil, helper.RpcError(connect.CodeNotFound, "Auction not found")
 	}
 
-	existingAuction, err := qtx.LockAuctionByID(ctx, auction_id)
-	if err != nil {
-		return nil, rpcError(connect.CodeNotFound, "Auction not found")
-	}
-
-	// Validate auction state
 	if existingAuction.Status != db.AuctionStatusActive {
-		return nil, rpcError(connect.CodeFailedPrecondition, "Auction not active")
+		return nil, helper.RpcError(connect.CodeFailedPrecondition, "Auction not active")
 	}
 	if time.Now().After(existingAuction.EndTime.Time) {
-		return nil, rpcError(connect.CodeFailedPrecondition, "Auction ended already")
+		return nil, helper.RpcError(connect.CodeFailedPrecondition, "Auction ended already")
 	}
 	if existingAuction.SellerID.Bytes == buyer_id.Bytes {
-		return nil, rpcError(connect.CodeInvalidArgument, "Cannot bid on your own auction")
+		return nil, helper.RpcError(connect.CodeInvalidArgument, "Cannot bid on your own auction")
 	}
 
 	bidAmount := int32(input.Amount)
 
-	// Validate bid amount
 	if existingAuction.Type == db.AuctionTypeEnglish {
-		// English auction: bid must be higher than current price
 		if bidAmount <= existingAuction.CurrentPrice {
-			return nil, rpcError(connect.CodeInvalidArgument, "Bid must be higher than current price")
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "Bid must be higher than current price")
 		}
 	} else {
-		// Dutch auction: bid must be >= current price (accept current offer)
 		if bidAmount < existingAuction.CurrentPrice {
-			return nil, rpcError(connect.CodeInvalidArgument, "Bid must match or exceed current price")
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "Bid must match or exceed current price")
 		}
 	}
 
-	existingUser, err := qtx.GetUserByID(ctx, buyer_id)
+	existingUser, err := s.store.Queries.GetUserByID(ctx, buyer_id)
 	if err != nil {
-		return nil, rpcError(connect.CodeNotFound, "User not found")
+		return nil, helper.RpcError(connect.CodeNotFound, "User not found")
 	}
 
-	// Check if user already has an active bid on this auction
-	existingBid, err := qtx.GetActiveBidByUserAndAuction(ctx, db.GetActiveBidByUserAndAuctionParams{
+	existingBid, err := s.store.Queries.GetActiveBidByUserAndAuction(ctx, db.GetActiveBidByUserAndAuctionParams{
 		AuctionID: auction_id,
 		UserID:    buyer_id,
 	})
 
 	var newBid db.Bid
 	if err == nil {
-		// User is increasing their own bid
 		bidDifference := bidAmount - existingBid.Amount
 		if bidDifference <= 0 {
-			return nil, rpcError(connect.CodeInvalidArgument, "New bid must be higher than your current bid")
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "New bid must be higher than your current bid")
 		}
 		if existingUser.AvailableBalance < bidDifference {
-			return nil, rpcError(connect.CodeInvalidArgument, "Insufficient balance for bid increase")
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "Insufficient balance for bid increase")
 		}
-
-		// Hold the difference amount
-		_, err = qtx.IncreaseHeldByDifference(ctx, db.IncreaseHeldByDifferenceParams{
+		//increase heldbalance and decrease available balance
+		_, err = s.store.Queries.IncreaseHeldByDifference(ctx, db.IncreaseHeldByDifferenceParams{
 			AvailableBalance: bidDifference,
 			ID:               buyer_id,
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to hold bid amount")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to hold bid amount")
 		}
 
-		// Create new bid (old one stays as outbid)
-		newBid, err = qtx.CreateBid(ctx, db.CreateBidParams{
+		newBid, err = s.store.Queries.CreateBid(ctx, db.CreateBidParams{
 			AuctionID: auction_id,
 			UserID:    buyer_id,
 			Amount:    bidAmount,
 			IsAutoBid: input.IsAutoBid,
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to create bid")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to create bid")
 		}
 
-		// Mark old bid as outbid
-		err = qtx.MarkBidOutbid(ctx, db.MarkBidOutbidParams{
+		err = s.store.Queries.MarkBidOutbid(ctx, db.MarkBidOutbidParams{
 			AuctionID: auction_id,
 			UserID:    buyer_id,
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to update previous bid")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to update previous bid")
 		}
 	} else {
-		// New bidder
 		if existingUser.AvailableBalance < bidAmount {
-			return nil, rpcError(connect.CodeInvalidArgument, "Insufficient balance")
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "Insufficient balance")
 		}
 
-		// Hold the full bid amount
-		_, err = qtx.HoldBidAmount(ctx, db.HoldBidAmountParams{
+		_, err = s.store.Queries.HoldBidAmount(ctx, db.HoldBidAmountParams{
 			AvailableBalance: bidAmount,
 			ID:               buyer_id,
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to hold bid amount")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to hold bid amount")
 		}
 
-		// Create new bid
-		newBid, err = qtx.CreateBid(ctx, db.CreateBidParams{
+		newBid, err = s.store.Queries.CreateBid(ctx, db.CreateBidParams{
 			AuctionID: auction_id,
 			UserID:    buyer_id,
 			Amount:    bidAmount,
 			IsAutoBid: input.IsAutoBid,
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to create bid")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to create bid")
 		}
 
-		// Release previous highest bidder's funds (if exists)
 		if existingAuction.CurrentBidderID.Valid {
 			prevBidderID := existingAuction.CurrentBidderID
-			prevBid, err := qtx.GetActiveBidByUserAndAuction(ctx, db.GetActiveBidByUserAndAuctionParams{
+			prevBid, err := s.store.Queries.GetActiveBidByUserAndAuction(ctx, db.GetActiveBidByUserAndAuctionParams{
 				AuctionID: auction_id,
 				UserID:    prevBidderID,
 			})
 			if err == nil {
-				// Release previous bidder's held amount
-				_, err = qtx.ReleaseBidAmount(ctx, db.ReleaseBidAmountParams{
+				_, err = s.store.Queries.ReleaseBidAmount(ctx, db.ReleaseBidAmountParams{
 					HeldBalance: prevBid.Amount,
 					ID:          prevBidderID,
 				})
 				if err != nil {
-					return nil, rpcError(connect.CodeInternal, "Failed to release previous bidder funds")
+					return nil, helper.RpcError(connect.CodeInternal, "Failed to release previous bidder funds")
 				}
 
-				// Mark previous bid as outbid
-				err = qtx.MarkBidOutbid(ctx, db.MarkBidOutbidParams{
+				err = s.store.Queries.MarkBidOutbid(ctx, db.MarkBidOutbidParams{
 					AuctionID: auction_id,
 					UserID:    prevBidderID,
 				})
 				if err != nil {
-					return nil, rpcError(connect.CodeInternal, "Failed to update previous bid status")
+					return nil, helper.RpcError(connect.CodeInternal, "Failed to update previous bid status")
 				}
 			}
 		}
 	}
 
-	// Update auction with new current price and bidder
-	_, err = qtx.UpdateAuctionAfterBid(ctx, db.UpdateAuctionAfterBidParams{
+	_, err = s.store.Queries.UpdateAuctionAfterBid(ctx, db.UpdateAuctionAfterBidParams{
 		CurrentPrice: bidAmount,
 		CurrentBidderID: pgtype.UUID{
 			Bytes: buyer_id.Bytes,
@@ -273,10 +239,9 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		ID: auction_id,
 	})
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "Failed to update auction")
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to update auction")
 	}
 
-	// Record bid history
 	historyEvent := db.AuctionEventBidPlaced
 	historyNote := "New bid placed"
 	if existingBid.ID.Valid {
@@ -284,7 +249,7 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		historyNote = "Bidder increased their bid"
 	}
 
-	_, err = qtx.CreateAuctionHistory(ctx, db.CreateAuctionHistoryParams{
+	_, err = s.store.Queries.CreateAuctionHistory(ctx, db.CreateAuctionHistoryParams{
 		AuctionID: auction_id,
 		UserID:    buyer_id,
 		Event:     historyEvent,
@@ -292,27 +257,24 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		Note:      pgtype.Text{String: historyNote, Valid: true},
 	})
 	if err != nil {
-		return nil, rpcError(connect.CodeInternal, "Failed to create auction history")
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to create auction history")
 	}
 
-	// Dutch auction: End immediately after first bid
 	if existingAuction.Type == db.AuctionTypeDutch {
-		_, err = qtx.UpdateAuctionStatus(ctx, db.UpdateAuctionStatusParams{
+		_, err = s.store.Queries.UpdateAuctionStatus(ctx, db.UpdateAuctionStatusParams{
 			Status: db.AuctionStatusEnded,
 			ID:     auction_id,
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to end Dutch auction")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to end Dutch auction")
 		}
 
-		// Mark winning bid as won
-		err = qtx.MarkBidWon(ctx, newBid.ID)
+		err = s.store.Queries.MarkBidWon(ctx, newBid.ID)
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to mark bid as won")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to mark bid as won")
 		}
 
-		// Record auction end in history
-		_, err = qtx.CreateAuctionHistory(ctx, db.CreateAuctionHistoryParams{
+		_, err = s.store.Queries.CreateAuctionHistory(ctx, db.CreateAuctionHistoryParams{
 			AuctionID: auction_id,
 			UserID:    buyer_id,
 			Event:     db.AuctionEventEnded,
@@ -320,21 +282,19 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 			Note:      pgtype.Text{String: "Dutch auction ended with first bid", Valid: true},
 		})
 		if err != nil {
-			return nil, rpcError(connect.CodeInternal, "Failed to record auction end")
+			return nil, helper.RpcError(connect.CodeInternal, "Failed to record auction end")
 		}
 	} else {
-		// English auction: Extend auction time if configured
 		if existingAuction.ExtendOnBid && existingAuction.ExtendMinutes > 0 {
-			_, err = qtx.ExtendAuctionEndTime(ctx, db.ExtendAuctionEndTimeParams{
+			_, err = s.store.Queries.ExtendAuctionEndTime(ctx, db.ExtendAuctionEndTimeParams{
 				Column1: existingAuction.ExtendMinutes,
 				ID:      auction_id,
 			})
 			if err != nil {
-				return nil, rpcError(connect.CodeInternal, "Failed to extend auction time")
+				return nil, helper.RpcError(connect.CodeInternal, "Failed to extend auction time")
 			}
 
-			// Record time extension in history
-			_, err = qtx.CreateAuctionHistory(ctx, db.CreateAuctionHistoryParams{
+			_, err = s.store.Queries.CreateAuctionHistory(ctx, db.CreateAuctionHistoryParams{
 				AuctionID: auction_id,
 				UserID:    buyer_id,
 				Event:     db.AuctionEventExtended,
@@ -342,14 +302,9 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 				Note:      pgtype.Text{String: "Auction time extended due to new bid", Valid: true},
 			})
 			if err != nil {
-				return nil, rpcError(connect.CodeInternal, "Failed to record time extension")
+				return nil, helper.RpcError(connect.CodeInternal, "Failed to record time extension")
 			}
 		}
-	}
-
-	// Commit transaction
-	if err = tx.Commit(ctx); err != nil {
-		return nil, rpcError(connect.CodeInternal, "Failed to commit transaction")
 	}
 
 	return connect.NewResponse(&v1.BidAuctionResponse{
@@ -366,15 +321,4 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		Message:   "Bid placed successfully",
 		Timestamp: timestamppb.New(time.Now()),
 	}), nil
-}
-
-func parsedStringToUUId(s string) (pgtype.UUID, error) {
-	parsedString, err := uuid.Parse(s)
-	if err != nil {
-		return pgtype.UUID{}, rpcError(connect.CodeInvalidArgument, "Cannot convert to uuid")
-	}
-	return pgtype.UUID{
-		Bytes: parsedString, // Copies the underlying [16]byte array natively
-		Valid: true,
-	}, nil
 }
