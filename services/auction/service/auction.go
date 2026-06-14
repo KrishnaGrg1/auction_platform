@@ -9,6 +9,7 @@ import (
 	"github.com/KrishnaGrg1/auction_platform/internal/auth"
 	db "github.com/KrishnaGrg1/auction_platform/internal/db/sqlc"
 	"github.com/KrishnaGrg1/auction_platform/internal/helper"
+	"github.com/KrishnaGrg1/auction_platform/internal/socket"
 	"github.com/KrishnaGrg1/auction_platform/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -115,7 +116,7 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 	if bidAmount <= 0 {
 		return nil, helper.RpcError(connect.CodeInvalidArgument, "Bid amount must be positive")
 	}
-	// ─────────────────────────────────────────────
+	// transaction begin─────────────────────────────────────────────
 	tx, err := s.store.Pool.Begin(ctx)
 	if err != nil {
 		return nil, helper.RpcError(connect.CodeInternal, "Failed to start transaction")
@@ -399,6 +400,8 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		return nil, helper.RpcError(connect.CodeInternal, "Failed to commit transaction")
 	}
 
+	s.publishAuctionEvents(existingAuction, newBid, buyer_id)
+
 	return connect.NewResponse(&v1.BidAuctionResponse{
 		Bid: &v1.Bid{
 			Id:        newBid.ID.String(),
@@ -413,4 +416,52 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 		Message:   "Bid placed successfully",
 		Timestamp: timestamppb.New(time.Now()),
 	}), nil
+}
+
+func (s *Service) publishAuctionEvents(
+	auction db.Auction,
+	bid db.Bid,
+	bidderID pgtype.UUID,
+) {
+	if s.store.SocketHub() == nil {
+		return
+	}
+
+	switch auction.Type {
+
+	case db.AuctionTypeDutch:
+
+		s.store.SocketHub().BroadcastToAuction(
+			auction.ID.String(),
+			socket.AuctionEvent{
+				Type:      "auction_won",
+				AuctionID: auction.ID.String(),
+				UserID:    uuid.UUID(bidderID.Bytes).String(),
+				Amount:    int64(bid.Amount),
+				Timestamp: time.Now(),
+			},
+		)
+
+		s.store.SocketHub().BroadcastToAuction(
+			auction.ID.String(),
+			socket.AuctionEvent{
+				Type:      "auction_ended",
+				AuctionID: auction.ID.String(),
+				Timestamp: time.Now(),
+			},
+		)
+
+	default:
+
+		s.store.SocketHub().BroadcastToAuction(
+			auction.ID.String(),
+			socket.AuctionEvent{
+				Type:      "new_bid",
+				AuctionID: auction.ID.String(),
+				UserID:    uuid.UUID(bidderID.Bytes).String(),
+				Amount:    int64(bid.Amount),
+				Timestamp: time.Now(),
+			},
+		)
+	}
 }

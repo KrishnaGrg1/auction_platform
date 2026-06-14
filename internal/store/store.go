@@ -5,18 +5,25 @@ import (
 	"log"
 
 	db "github.com/KrishnaGrg1/auction_platform/internal/db/sqlc"
+	"github.com/KrishnaGrg1/auction_platform/internal/socket"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Store struct {
-	Pool    *pgxpool.Pool
-	Queries *db.Queries
+	Pool      *pgxpool.Pool
+	Queries   *db.Queries
+	socketHub *socket.Hub
 }
 
-func New(pool *pgxpool.Pool) *Store {
+func (s *Store) SocketHub() *socket.Hub {
+	return s.socketHub
+}
+
+func New(pool *pgxpool.Pool, socket *socket.Hub) *Store {
 	return &Store{
-		Pool:    pool,
-		Queries: db.New(pool),
+		Pool:      pool,
+		Queries:   db.New(pool),
+		socketHub: socket,
 	}
 }
 
@@ -36,5 +43,5 @@ func Connect(dbUrl string) (*Store, error) {
 		return nil, err
 	}
 	log.Println("Connected to Neon database")
-	return New(pool), nil
+	return New(pool, socket.NewHub()), nil
 }
