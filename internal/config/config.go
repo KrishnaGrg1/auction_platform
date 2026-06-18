@@ -9,6 +9,8 @@ import (
 
 type Config struct {
 	PORT              string
+	AUTH_PORT         string
+	AUCTION_PORT      string
 	DB_URL            string
 	JWT_SECRET        string
 	RESEND_API_KEY    string
@@ -23,7 +25,8 @@ func Load() *Config {
 	}
 
 	return &Config{
-		PORT:              getEnv("PORT", "9090"),
+		AUTH_PORT:         getEnv("AUTH_PORT", "8081"),
+		AUCTION_PORT:      getEnv("AUCTION_PORT", "8080"),
 		DB_URL:            getEnv("GOOSE_DBSTRING", ""),
 		JWT_SECRET:        getEnv("JWT_SECRET", ""),
 		RESEND_API_KEY:    getEnv("RESEND_API_KEY", ""),

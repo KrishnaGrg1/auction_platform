@@ -42,6 +42,7 @@ type Querier interface {
 	// full timeline of everything that happened
 	GetAuctionHistoryByEvent(ctx context.Context, arg GetAuctionHistoryByEventParams) ([]AuctionHistory, error)
 	GetAuctionsBySellerID(ctx context.Context, sellerID pgtype.UUID) ([]Auction, error)
+	GetAuctionsList(ctx context.Context, arg GetAuctionsListParams) ([]Auction, error)
 	GetBidsByAuctionID(ctx context.Context, auctionID pgtype.UUID) ([]Bid, error)
 	GetBidsByUserID(ctx context.Context, userID pgtype.UUID) ([]Bid, error)
 	// scheduler uses this to activate auctions

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auction WebSocket Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        input, button {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input {
+            flex: 1;
+            min-width: 200px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        button.disconnect {
+            background: #f44336;
+        }
+        button.disconnect:hover {
+            background: #da190b;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .events {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .event {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+            background: white;
+        }
+        .event.new_bid {
+            border-left-color: #28a745;
+        }
+        .event.auction_won {
+            border-left-color: #ffc107;
+        }
+        .event.auction_ended {
+            border-left-color: #dc3545;
+        }
+        .event.connected {
+            border-left-color: #17a2b8;
+        }
+        .event.ping, .event.pong {
+            border-left-color: #6c757d;
+            opacity: 0.7;
+        }
+        .event-type {
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 5px;
+        }
+        .event-time {
+            color: #6c757d;
+            font-size: 12px;
+        }
+        .event-data {
+            margin-top: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎯 Auction Platform WebSocket Test</h1>
+
+    <div class="container">
+        <h2>Connection Settings</h2>
+        <div class="controls">
+            <input type="text" id="wsUrl" placeholder="WebSocket URL" value="ws://localhost:8080/ws/auction">
+            <input type="text" id="auctionId" placeholder="Auction ID (UUID)" value="">
+            <input type="text" id="userId" placeholder="User ID (Optional)" value="">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" class="disconnect" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+
+        <div id="status" class="status disconnected">
+            ⚪ Disconnected
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Statistics</h2>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">Total Events</div>
+                <div class="stat-value" id="totalEvents">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Bids Received</div>
+                <div class="stat-value" id="totalBids">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Connection Time</div>
+                <div class="stat-value" id="connectionTime">--</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Events Feed</h2>
+        <button onclick="clearEvents()" style="margin-bottom: 10px;">Clear Events</button>
+        <div id="events" class="events">
+            <p style="color: #6c757d; text-align: center;">No events yet. Connect to start receiving events.</p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let eventCount = 0;
+        let bidCount = 0;
+        let connectionStartTime = null;
+        let connectionTimeInterval = null;
+
+        function connect() {
+            const wsUrl = document.getElementById('wsUrl').value;
+            const auctionId = document.getElementById('auctionId').value;
+            const userId = document.getElementById('userId').value;
+
+            if (!auctionId) {
+                alert('Please enter an Auction ID');
+                return;
+            }
+
+            const url = `${wsUrl}?auction_id=${auctionId}${userId ? '&user_id=' + userId : ''}`;
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    updateStatus('connected', '🟢 Connected');
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    connectionStartTime = Date.now();
+                    startConnectionTimer();
+                    addEvent({
+                        type: 'system',
+                        message: `Connected to ${url}`,
+                        timestamp: new Date().toISOString()
+                    });
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addEvent(data);
+                        eventCount++;
+                        document.getElementById('totalEvents').textContent = eventCount;
+
+                        if (data.type === 'new_bid') {
+                            bidCount++;
+                            document.getElementById('totalBids').textContent = bidCount;
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse message:', e);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    addEvent({
+                        type: 'error',
+                        message: 'Connection error occurred',
+                        timestamp: new Date().toISOString()
+                    });
+                };
+
+                ws.onclose = () => {
+                    updateStatus('disconnected', '⚪ Disconnected');
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    stopConnectionTimer();
+                    addEvent({
+                        type: 'system',
+                        message: 'Connection closed',
+                        timestamp: new Date().toISOString()
+                    });
+                };
+
+            } catch (error) {
+                alert('Failed to connect: ' + error.message);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function updateStatus(status, text) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = text;
+        }
+
+        function addEvent(data) {
+            const eventsEl = document.getElementById('events');
+
+            // Clear placeholder
+            if (eventsEl.querySelector('p')) {
+                eventsEl.innerHTML = '';
+            }
+
+            const eventDiv = document.createElement('div');
+            eventDiv.className = `event ${data.type}`;
+
+            let content = `<div class="event-type">${data.type.toUpperCase().replace(/_/g, ' ')}</div>`;
+            content += `<div class="event-time">${new Date(data.timestamp).toLocaleTimeString()}</div>`;
+
+            if (data.message) {
+                content += `<div class="event-data">${data.message}</div>`;
+            }
+
+            const details = [];
+            if (data.auction_id) details.push(`Auction: ${data.auction_id.substring(0, 8)}...`);
+            if (data.user_id) details.push(`User: ${data.user_id.substring(0, 8)}...`);
+            if (data.amount) details.push(`Amount: $${(data.amount / 100).toFixed(2)}`);
+
+            if (details.length > 0) {
+                content += `<div class="event-data">${details.join(' | ')}</div>`;
+            }
+
+            eventDiv.innerHTML = content;
+            eventsEl.insertBefore(eventDiv, eventsEl.firstChild);
+
+            // Keep only last 50 events
+            while (eventsEl.children.length > 50) {
+                eventsEl.removeChild(eventsEl.lastChild);
+            }
+        }
+
+        function clearEvents() {
+            const eventsEl = document.getElementById('events');
+            eventsEl.innerHTML = '<p style="color: #6c757d; text-align: center;">No events yet. Connect to start receiving events.</p>';
+            eventCount = 0;
+            bidCount = 0;
+            document.getElementById('totalEvents').textContent = '0';
+            document.getElementById('totalBids').textContent = '0';
+        }
+
+        function startConnectionTimer() {
+            connectionTimeInterval = setInterval(() => {
+                if (connectionStartTime) {
+                    const seconds = Math.floor((Date.now() - connectionStartTime) / 1000);
+                    const minutes = Math.floor(seconds / 60);
+                    const remainingSeconds = seconds % 60;
+                    document.getElementById('connectionTime').textContent =
+                        `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+                }
+            }, 1000);
+        }
+
+        function stopConnectionTimer() {
+            if (connectionTimeInterval) {
+                clearInterval(connectionTimeInterval);
+                connectionTimeInterval = null;
+            }
+            document.getElementById('connectionTime').textContent = '--';
+            connectionStartTime = null;
+        }
+
+        // Auto-populate with a sample UUID if empty (for testing)
+        window.addEventListener('DOMContentLoaded', () => {
+            const auctionIdInput = document.getElementById('auctionId');
+            if (!auctionIdInput.value) {
+                // This is just a placeholder UUID format
+                auctionIdInput.placeholder = 'e.g., 123e4567-e89b-12d3-a456-426614174000';
+            }
+        });
+    </script>
+</body>
+</html>

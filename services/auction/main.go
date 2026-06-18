@@ -10,10 +10,10 @@ import (
 	"github.com/KrishnaGrg1/auction_platform/gen/auction_platform/v1/auction_platformv1connect"
 	"github.com/KrishnaGrg1/auction_platform/internal/auth"
 	"github.com/KrishnaGrg1/auction_platform/internal/config"
+	"github.com/KrishnaGrg1/auction_platform/internal/socket"
 	"github.com/KrishnaGrg1/auction_platform/internal/store"
-
-	authHandler "github.com/KrishnaGrg1/auction_platform/services/auth/handler"
-	authService "github.com/KrishnaGrg1/auction_platform/services/auth/service"
+	auctionHandler "github.com/KrishnaGrg1/auction_platform/services/auction/handler"
+	auctionService "github.com/KrishnaGrg1/auction_platform/services/auction/service"
 )
 
 func main() {
@@ -27,17 +27,25 @@ func main() {
 
 	jwtManager := auth.NewJWTManager(cfg.JWT_SECRET)
 
-	// Initialize auth service
-	svc := authService.New(s, jwtManager)
-	authSvc := authHandler.New(svc)
+	// Initialize auction service
+	auctionSvc := auctionHandler.New(auctionService.New(s, jwtManager))
 
 	// Create HTTP mux
 	mux := http.NewServeMux()
 
-	// Register auth service handlers (no auth interceptor for auth service)
-	path, handler := auction_platformv1connect.NewAuthServiceHandler(authSvc,
-		connect.WithInterceptors(validate.NewInterceptor()))
+	// Register auction service handlers
+	authInterceptor := auth.NewAuthInterceptor(jwtManager)
+	path, handler := auction_platformv1connect.NewAuctionServiceHandler(
+		auctionSvc,
+		connect.WithInterceptors(validate.NewInterceptor()),
+		connect.WithInterceptors(authInterceptor),
+	)
 	mux.Handle(path, handler)
+
+	// Register WebSocket endpoint
+	mux.HandleFunc("/ws/auction", func(w http.ResponseWriter, r *http.Request) {
+		socket.ServeWs(s.SocketHub(), w, r)
+	})
 
 	// Health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -45,13 +53,10 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	addr := ":" + cfg.AUTH_PORT
-	fmt.Printf("🔐 Auth service running on port: %s\n", cfg.AUTH_PORT)
-	fmt.Printf("🔗 gRPC endpoint: http://localhost:%s\n", cfg.AUTH_PORT)
-	fmt.Printf("📍 Endpoints:\n")
-	fmt.Printf("   - POST /auction_platform.v1.AuthService/Register\n")
-	fmt.Printf("   - POST /auction_platform.v1.AuthService/Login\n")
-	fmt.Printf("   - POST /auction_platform.v1.AuthService/Verify\n")
+	addr := ":" + cfg.AUCTION_PORT
+	fmt.Printf("🚀 Auction service running on port: %s\n", cfg.AUCTION_PORT)
+	fmt.Printf("📡 WebSocket endpoint: ws://localhost:%s/ws/auction?auction_id=<auction_id>\n", cfg.AUCTION_PORT)
+	fmt.Printf("🔗 gRPC endpoint: http://localhost:%s\n", cfg.AUCTION_PORT)
 
 	// Use new Go 1.23+ HTTP/2 support
 	p := new(http.Protocols)

@@ -400,6 +400,68 @@ func (q *Queries) GetAuctionsBySellerID(ctx context.Context, sellerID pgtype.UUI
 	return items, nil
 }
 
+const getAuctionsList = `-- name: GetAuctionsList :many
+SELECT id, seller_id, current_bidder_id, title, description, type, status, starting_price, reserved_price, current_price, drop_amount, drop_interval, last_drop_time, extend_on_bid, extend_minutes, start_time, end_time, original_end_time, created_at, updated_at
+FROM auctions
+WHERE status = $1
+  AND type = $2
+ORDER BY end_time DESC
+LIMIT $3 OFFSET $4
+`
+
+type GetAuctionsListParams struct {
+	Status AuctionStatus `json:"status"`
+	Type   AuctionType   `json:"type"`
+	Limit  int32         `json:"limit"`
+	Offset int32         `json:"offset"`
+}
+
+func (q *Queries) GetAuctionsList(ctx context.Context, arg GetAuctionsListParams) ([]Auction, error) {
+	rows, err := q.db.Query(ctx, getAuctionsList,
+		arg.Status,
+		arg.Type,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Auction
+	for rows.Next() {
+		var i Auction
+		if err := rows.Scan(
+			&i.ID,
+			&i.SellerID,
+			&i.CurrentBidderID,
+			&i.Title,
+			&i.Description,
+			&i.Type,
+			&i.Status,
+			&i.StartingPrice,
+			&i.ReservedPrice,
+			&i.CurrentPrice,
+			&i.DropAmount,
+			&i.DropInterval,
+			&i.LastDropTime,
+			&i.ExtendOnBid,
+			&i.ExtendMinutes,
+			&i.StartTime,
+			&i.EndTime,
+			&i.OriginalEndTime,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExpiredActiveAuctions = `-- name: GetExpiredActiveAuctions :many
 
 SELECT id, seller_id, current_bidder_id, title, description, type, status, starting_price, reserved_price, current_price, drop_amount, drop_interval, last_drop_time, extend_on_bid, extend_minutes, start_time, end_time, original_end_time, created_at, updated_at FROM auctions

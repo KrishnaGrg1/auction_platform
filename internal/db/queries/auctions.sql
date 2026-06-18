@@ -106,3 +106,11 @@ WHERE id        = $1
   AND status    = 'Scheduled'
 -- can only cancel before it starts
 RETURNING *;
+
+-- name: GetAuctionsList :many
+SELECT *
+FROM auctions
+WHERE status = $1
+  AND type = $2
+ORDER BY end_time DESC
+LIMIT $3 OFFSET $4;

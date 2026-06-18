@@ -1,6 +1,6 @@
 # Auction Platform
 
-A real-time auction platform supporting **English** and **Dutch** auctions, built with Go, ConnectRPC, PostgreSQL, and WebSocket (planned).
+A real-time auction platform supporting **English** and **Dutch** auctions, built with Go, ConnectRPC, PostgreSQL, and **WebSocket**.
 
 ## Features
 
@@ -10,6 +10,7 @@ A real-time auction platform supporting **English** and **Dutch** auctions, buil
 - 💰 **Balance Management** - User wallets with available/held balance tracking
 - 📊 **Bid History** - Complete audit trail of all auction events
 - 🔒 **Transaction Safety** - ACID-compliant with row-level locking
+- ⚡ **Real-Time Updates** - WebSocket broadcasting for live auction events
 
 ## Prerequisites
 
@@ -34,16 +35,43 @@ cp .env.example .env
 # 3. Run database migrations
 goose up
 
-# 4. Generate code
+# 4. Generate code (if modifying protos/queries)
 buf generate
 sqlc generate
 
-# 5. Run the server
-go run services/auction/main.go 
-go run services/auth/main.go
+# 5. Run the services (in separate terminals)
+# Terminal 1 - Auth Service (Port 8081)
+cd services/auth && go run main.go
+
+# Terminal 2 - Auction Service (Port 8080)
+cd services/auction && go run main.go
 ```
 
-Server starts on `http://localhost:8080`
+**Services:**
+- Auth Service: `http://localhost:8081` (Registration, Login, Verification)
+- Auction Service: `http://localhost:8080` (Auctions, Bidding, WebSocket)
+
+📖 **See [SERVICES_SETUP.md](SERVICES_SETUP.md) for detailed setup guide**
+
+## WebSocket Real-Time Updates
+
+The platform includes WebSocket support for real-time auction events:
+
+```bash
+# Connect to an auction room
+ws://localhost:8080/ws/auction?auction_id=<uuid>
+```
+
+**Quick Start:**
+- Open `websocket_test.html` in your browser for an interactive test client
+- See [QUICK_START.md](QUICK_START.md) for step-by-step tutorial
+- See [WEBSOCKET_GUIDE.md](WEBSOCKET_GUIDE.md) for complete documentation
+
+**Events you'll receive:**
+- `new_bid` - When someone places a bid
+- `auction_won` - When a Dutch auction is won
+- `auction_ended` - When an auction ends
+- `ping`/`pong` - Connection keep-alive
 
 ## Project Structure
 
