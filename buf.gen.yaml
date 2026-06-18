@@ -1,10 +1,15 @@
 version: v1
 plugins:
-  - plugin: buf.build/protocolbuffers/go
+  - plugin: go
     out: gen
     opt:
       - paths=source_relative
-  - plugin: buf.build/connectrpc/go
+  - plugin: connect-go
     out: gen
     opt:
       - paths=source_relative
+  # TypeScript frontend (new)
+  - plugin: es
+    path: frontend/node_modules/.bin/protoc-gen-es
+    out: frontend/src/gen
+    opt: target=ts

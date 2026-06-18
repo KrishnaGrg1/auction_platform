@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -35,11 +36,24 @@ func (h *Handler) Login(ctx context.Context, req *connect.Request[v1.LoginReques
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.LoginResponse{
+	res := connect.NewResponse(&v1.LoginResponse{
 		Token:     token,
 		User:      user,
 		Timestamp: timestamppb.New(time.Now()),
-	}), nil
+	})
+	res.Header().Add(
+		"Set-Cookie",
+		(&http.Cookie{
+			Name:     "token",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   86400,
+		}).String(),
+	)
+	return res, nil
 }
 
 func (h *Handler) Verify(ctx context.Context, req *connect.Request[v1.VerifyRequest]) (*connect.Response[v1.VerifyResponse], error) {
@@ -47,10 +61,23 @@ func (h *Handler) Verify(ctx context.Context, req *connect.Request[v1.VerifyRequ
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.VerifyResponse{
+	res := connect.NewResponse(&v1.VerifyResponse{
 		Token:     token,
 		User:      user,
 		Message:   "User verified successfully",
 		Timestamp: timestamppb.New(time.Now()),
-	}), nil
+	})
+	res.Header().Add(
+		"Set-Cookie",
+		(&http.Cookie{
+			Name:     "token",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   86400,
+		}).String(),
+	)
+	return res, nil
 }

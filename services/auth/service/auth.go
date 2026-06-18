@@ -96,7 +96,7 @@ func (s *Service) Login(ctx context.Context, req *connect.Request[v1.LoginReques
 	input := req.Msg
 	existingUser, err := s.store.Queries.GetUserByEmail(ctx, input.Email)
 	if err != nil {
-		return "", nil, helper.RpcError(connect.CodeNotFound, "invalid email or password")
+		return "", nil, helper.RpcError(connect.CodeNotFound, "Invalid email or password")
 	}
 	if existingUser.Email == "" {
 		return "", nil, helper.RpcError(connect.CodeNotFound, "User not exists")
