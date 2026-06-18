@@ -11,6 +11,12 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// AuctionValidator — socket only needs this one method
+// store implements this without socket importing store
+type AuctionValidator interface {
+	AuctionExists(ctx context.Context, auctionID string) bool
+}
+
 type AuctionEvent struct {
 	Type      string    `json:"type"`
 	AuctionID string    `json:"auction_id"`
@@ -21,23 +27,26 @@ type AuctionEvent struct {
 }
 
 type Client struct {
-	conn      *websocket.Conn
+	conn      interface{} // use nhooyr.io/websocket.Conn in ws.go
 	auctionID string
 	userID    string
 	ctx       context.Context
 	cancel    context.CancelFunc
 	sendCh    chan []byte
+	done      chan struct{}
 }
 
 type Hub struct {
+	validator  AuctionValidator
 	rooms      map[string]map[*Client]bool
 	mu         sync.RWMutex
 	register   chan *Client
 	unregister chan *Client
 }
 
-func NewHub() *Hub {
+func NewHub(validator AuctionValidator) *Hub {
 	hub := &Hub{
+		validator:  validator,
 		rooms:      make(map[string]map[*Client]bool),
 		register:   make(chan *Client, 256),
 		unregister: make(chan *Client, 256),
@@ -56,7 +65,8 @@ func (h *Hub) run() {
 			}
 			h.rooms[client.auctionID][client] = true
 			h.mu.Unlock()
-			log.Printf("Client joined auction room: %s (total: %d)", client.auctionID, len(h.rooms[client.auctionID]))
+			log.Printf("Client joined room %s (total: %d)",
+				client.auctionID, len(h.rooms[client.auctionID]))
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -67,7 +77,8 @@ func (h *Hub) run() {
 					if len(clients) == 0 {
 						delete(h.rooms, client.auctionID)
 					}
-					log.Printf("Client left auction room: %s (remaining: %d)", client.auctionID, len(clients))
+					log.Printf("Client left room %s (remaining: %d)",
+						client.auctionID, len(clients))
 				}
 			}
 			h.mu.Unlock()
@@ -84,30 +95,28 @@ func (h *Hub) LeaveRoom(auctionID string, client *Client) {
 }
 
 func (h *Hub) BroadcastToAuction(auctionID string, payload any) {
-	h.mu.RLock()
-	clients, ok := h.rooms[auctionID]
-	if !ok {
-		h.mu.RUnlock()
-		return
-	}
-
 	data, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("Failed to marshal payload: %v", err)
-		h.mu.RUnlock()
 		return
 	}
 
-	// Send to all clients in the room
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	clients, ok := h.rooms[auctionID]
+	if !ok {
+		return
+	}
+
 	for client := range clients {
 		select {
 		case client.sendCh <- data:
 		default:
-			// Client's send buffer is full, skip this message
-			log.Printf("Client send buffer full for auction %s", auctionID)
+			log.Printf("Client buffer full — disconnecting")
+			client.cancel()
 		}
 	}
-	h.mu.RUnlock()
 }
 
 func (h *Hub) GetRoomCount(auctionID string) int {
@@ -118,16 +127,20 @@ func (h *Hub) GetRoomCount(auctionID string) int {
 	}
 	return 0
 }
-
-// ServeWs — HTTP handler for WebSocket connections
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	auctionID := r.URL.Query().Get("auction_id")
 	if auctionID == "" {
-		http.Error(w, `{"error":"auction_id query parameter required"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"auction_id required"}`, http.StatusBadRequest)
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
+	// 🔧 use interface — no store import needed
+	if !hub.validator.AuctionExists(r.Context(), auctionID) {
+		http.Error(w, `{"error":"auction not found"}`, http.StatusNotFound)
+		return
+	}
+
+	userID := r.URL.Query().Get("user_id") // TODO: validate from token
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -138,58 +151,55 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	conn.SetReadLimit(512 * 1024)
+
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
 
 	client := &Client{
-		conn:      conn,
 		auctionID: auctionID,
 		userID:    userID,
 		ctx:       ctx,
 		cancel:    cancel,
 		sendCh:    make(chan []byte, 256),
+		done:      make(chan struct{}),
 	}
 
+	// store conn separately since Client.conn is interface{}
+	// pass conn directly to pumps
 	hub.JoinRoom(auctionID, client)
-	defer func() {
-		hub.LeaveRoom(auctionID, client)
-		conn.Close(websocket.StatusNormalClosure, "connection closed")
-	}()
 
-	// Send welcome message
+	// welcome message
 	welcomeMsg := AuctionEvent{
 		Type:      "connected",
 		AuctionID: auctionID,
-		Message:   "Successfully connected to auction room",
+		Message:   "Connected to auction room",
 		Timestamp: time.Now(),
 	}
 	if data, err := json.Marshal(welcomeMsg); err == nil {
 		client.sendCh <- data
 	}
 
-	// Start writer goroutine
-	go client.writePump()
+	go writePump(client, conn)
+	readPump(client, conn)
 
-	// Reader pump (main goroutine)
-	client.readPump()
+	cancel()
+	<-client.done
+
+	hub.LeaveRoom(auctionID, client)
+	conn.Close(websocket.StatusNormalClosure, "connection closed")
 }
 
-func (c *Client) readPump() {
-	defer c.cancel()
-
-	// Set read deadline for ping/pong
-	c.conn.SetReadLimit(512 * 1024) // 512KB max message size
-
+func readPump(c *Client, conn *websocket.Conn) {
 	for {
-		_, msg, err := c.conn.Read(c.ctx)
+		_, msg, err := conn.Read(c.ctx)
 		if err != nil {
-			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+			if websocket.CloseStatus(err) != websocket.StatusNormalClosure &&
+				websocket.CloseStatus(err) != websocket.StatusGoingAway {
 				log.Printf("WebSocket read error: %v", err)
 			}
 			return
 		}
 
-		// Handle ping/pong or other client messages
 		var clientMsg map[string]interface{}
 		if err := json.Unmarshal(msg, &clientMsg); err == nil {
 			if msgType, ok := clientMsg["type"].(string); ok && msgType == "ping" {
@@ -209,39 +219,22 @@ func (c *Client) readPump() {
 	}
 }
 
-func (c *Client) writePump() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+func writePump(c *Client, conn *websocket.Conn) {
+	defer close(c.done)
 
 	for {
 		select {
 		case message, ok := <-c.sendCh:
 			if !ok {
-				c.conn.Close(websocket.StatusNormalClosure, "")
+				conn.Close(websocket.StatusNormalClosure, "")
 				return
 			}
-
 			writeCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
-			err := c.conn.Write(writeCtx, websocket.MessageText, message)
+			err := conn.Write(writeCtx, websocket.MessageText, message)
 			cancel()
-
 			if err != nil {
 				log.Printf("WebSocket write error: %v", err)
 				return
-			}
-
-		case <-ticker.C:
-			// Send periodic ping
-			ping := AuctionEvent{
-				Type:      "ping",
-				AuctionID: c.auctionID,
-				Timestamp: time.Now(),
-			}
-			if data, err := json.Marshal(ping); err == nil {
-				select {
-				case c.sendCh <- data:
-				default:
-				}
 			}
 
 		case <-c.ctx.Done():

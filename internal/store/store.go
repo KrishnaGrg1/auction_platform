@@ -5,6 +5,7 @@ import (
 	"log"
 
 	db "github.com/KrishnaGrg1/auction_platform/internal/db/sqlc"
+	"github.com/KrishnaGrg1/auction_platform/internal/helper"
 	"github.com/KrishnaGrg1/auction_platform/internal/socket"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,11 +20,22 @@ func (s *Store) SocketHub() *socket.Hub {
 	return s.socketHub
 }
 
-func New(pool *pgxpool.Pool, socket *socket.Hub) *Store {
+// AuctionExists implements socket.AuctionValidator
+// socket calls this without knowing about store package
+func (s *Store) AuctionExists(ctx context.Context, auctionID string) bool {
+	id, err := helper.ParsedStringToUUID(auctionID)
+	if err != nil {
+		return false
+	}
+	_, err = s.Queries.GetAuctionByID(ctx, id)
+	return err == nil
+}
+
+func New(pool *pgxpool.Pool, hub *socket.Hub) *Store {
 	return &Store{
 		Pool:      pool,
 		Queries:   db.New(pool),
-		socketHub: socket,
+		socketHub: hub,
 	}
 }
 
@@ -42,6 +54,18 @@ func Connect(dbUrl string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	log.Println("Connected to Neon database")
-	return New(pool, socket.NewHub()), nil
+
+	log.Println("Connected to database")
+
+	// create store without hub first
+	s := &Store{
+		Pool:    pool,
+		Queries: db.New(pool),
+	}
+
+	// store implements AuctionValidator
+	// pass store to NewHub — no circular import
+	s.socketHub = socket.NewHub(s)
+
+	return s, nil
 }
