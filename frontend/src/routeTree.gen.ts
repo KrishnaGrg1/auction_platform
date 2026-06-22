@@ -13,6 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as authRegisterRouteImport } from './routes/(auth)/register'
 import { Route as authLoginRouteImport } from './routes/(auth)/login'
+import { Route as DashboardAuctionIndexRouteImport } from './routes/dashboard/auction/index'
+import { Route as DashboardAuctionCreateRouteImport } from './routes/dashboard/auction/create'
+import { Route as DashboardAuctionIdIndexRouteImport } from './routes/dashboard/auction/$id/index'
+import { Route as DashboardAuctionIdEditRouteImport } from './routes/dashboard/auction/$id/edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +38,46 @@ const authLoginRoute = authLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardAuctionIndexRoute = DashboardAuctionIndexRouteImport.update({
+  id: '/dashboard/auction/',
+  path: '/dashboard/auction/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardAuctionCreateRoute = DashboardAuctionCreateRouteImport.update({
+  id: '/dashboard/auction/create',
+  path: '/dashboard/auction/create',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardAuctionIdIndexRoute = DashboardAuctionIdIndexRouteImport.update({
+  id: '/dashboard/auction/$id/',
+  path: '/dashboard/auction/$id/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardAuctionIdEditRoute = DashboardAuctionIdEditRouteImport.update({
+  id: '/dashboard/auction/$id/edit',
+  path: '/dashboard/auction/$id/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof authLoginRoute
   '/register': typeof authRegisterRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/dashboard/auction/create': typeof DashboardAuctionCreateRoute
+  '/dashboard/auction/': typeof DashboardAuctionIndexRoute
+  '/dashboard/auction/$id/edit': typeof DashboardAuctionIdEditRoute
+  '/dashboard/auction/$id/': typeof DashboardAuctionIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof authLoginRoute
   '/register': typeof authRegisterRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/dashboard/auction/create': typeof DashboardAuctionCreateRoute
+  '/dashboard/auction': typeof DashboardAuctionIndexRoute
+  '/dashboard/auction/$id/edit': typeof DashboardAuctionIdEditRoute
+  '/dashboard/auction/$id': typeof DashboardAuctionIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +85,42 @@ export interface FileRoutesById {
   '/(auth)/login': typeof authLoginRoute
   '/(auth)/register': typeof authRegisterRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/dashboard/auction/create': typeof DashboardAuctionCreateRoute
+  '/dashboard/auction/': typeof DashboardAuctionIndexRoute
+  '/dashboard/auction/$id/edit': typeof DashboardAuctionIdEditRoute
+  '/dashboard/auction/$id/': typeof DashboardAuctionIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/register' | '/dashboard/'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/register'
+    | '/dashboard/'
+    | '/dashboard/auction/create'
+    | '/dashboard/auction/'
+    | '/dashboard/auction/$id/edit'
+    | '/dashboard/auction/$id/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register' | '/dashboard'
-  id: '__root__' | '/' | '/(auth)/login' | '/(auth)/register' | '/dashboard/'
+  to:
+    | '/'
+    | '/login'
+    | '/register'
+    | '/dashboard'
+    | '/dashboard/auction/create'
+    | '/dashboard/auction'
+    | '/dashboard/auction/$id/edit'
+    | '/dashboard/auction/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/(auth)/login'
+    | '/(auth)/register'
+    | '/dashboard/'
+    | '/dashboard/auction/create'
+    | '/dashboard/auction/'
+    | '/dashboard/auction/$id/edit'
+    | '/dashboard/auction/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +128,10 @@ export interface RootRouteChildren {
   authLoginRoute: typeof authLoginRoute
   authRegisterRoute: typeof authRegisterRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  DashboardAuctionCreateRoute: typeof DashboardAuctionCreateRoute
+  DashboardAuctionIndexRoute: typeof DashboardAuctionIndexRoute
+  DashboardAuctionIdEditRoute: typeof DashboardAuctionIdEditRoute
+  DashboardAuctionIdIndexRoute: typeof DashboardAuctionIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +164,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/auction/': {
+      id: '/dashboard/auction/'
+      path: '/dashboard/auction'
+      fullPath: '/dashboard/auction/'
+      preLoaderRoute: typeof DashboardAuctionIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard/auction/create': {
+      id: '/dashboard/auction/create'
+      path: '/dashboard/auction/create'
+      fullPath: '/dashboard/auction/create'
+      preLoaderRoute: typeof DashboardAuctionCreateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard/auction/$id/': {
+      id: '/dashboard/auction/$id/'
+      path: '/dashboard/auction/$id'
+      fullPath: '/dashboard/auction/$id/'
+      preLoaderRoute: typeof DashboardAuctionIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard/auction/$id/edit': {
+      id: '/dashboard/auction/$id/edit'
+      path: '/dashboard/auction/$id/edit'
+      fullPath: '/dashboard/auction/$id/edit'
+      preLoaderRoute: typeof DashboardAuctionIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +200,10 @@ const rootRouteChildren: RootRouteChildren = {
   authLoginRoute: authLoginRoute,
   authRegisterRoute: authRegisterRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  DashboardAuctionCreateRoute: DashboardAuctionCreateRoute,
+  DashboardAuctionIndexRoute: DashboardAuctionIndexRoute,
+  DashboardAuctionIdEditRoute: DashboardAuctionIdEditRoute,
+  DashboardAuctionIdIndexRoute: DashboardAuctionIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

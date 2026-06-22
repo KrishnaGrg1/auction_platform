@@ -178,3 +178,30 @@ func (s *Service) Verify(ctx context.Context, req *connect.Request[v1.VerifyRequ
 	}
 	return token, user, nil
 }
+
+func (s *Service) GetMe(ctx context.Context, req *connect.Request[v1.GetMeRequest]) (*v1.User, error) {
+	userId, ok := ctx.Value(auth.UserIDKey).(string)
+	if !ok || userId == "" {
+		return nil, helper.RpcError(connect.CodeUnauthenticated, "Missing user authentication")
+	}
+	parsedUserId, err := helper.ParsedStringToUUID(userId)
+	if err != nil {
+		return nil, err
+	}
+	existingUser, err := s.store.Queries.GetUserByID(ctx, parsedUserId)
+	if err != nil {
+		return nil, err
+	}
+	user := &v1.User{
+		Id:               existingUser.ID.String(),
+		Email:            existingUser.Email,
+		FirstName:        existingUser.FirstName,
+		LastName:         existingUser.LastName,
+		AvailableBalance: existingUser.AvailableBalance,
+		HeldBalance:      existingUser.HeldBalance,
+		IsVerified:       existingUser.IsVerified,
+		CreatedAt:        timestamppb.New(existingUser.CreatedAt.Time),
+		UpdatedAt:        timestamppb.New(existingUser.UpdatedAt.Time),
+	}
+	return user, nil
+}

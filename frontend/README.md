@@ -1,4 +1,4 @@
-Welcome to your new TanStack Start app! 
+Welcome to your new TanStack Start app!
 
 # Getting Started
 
@@ -40,7 +40,6 @@ If you prefer not to use Tailwind CSS:
 
 ## Linting & Formatting
 
-
 This project uses [eslint](https://eslint.org/) and [prettier](https://prettier.io/) for linting and formatting. Eslint is configured using [tanstack/eslint-config](https://tanstack.com/config/latest/docs/eslint). The following scripts are available:
 
 ```bash
@@ -49,7 +48,6 @@ bun --bun run format
 bun --bun run check
 ```
 
-
 ## Shadcn
 
 Add components using the latest version of [Shadcn](https://ui.shadcn.com/).
@@ -57,7 +55,6 @@ Add components using the latest version of [Shadcn](https://ui.shadcn.com/).
 ```bash
 pnpm dlx shadcn@latest add button
 ```
-
 
 ## T3Env
 
@@ -68,15 +65,10 @@ pnpm dlx shadcn@latest add button
 ### Usage
 
 ```ts
-import { env } from "#/env";
+import { env } from '#/env'
 
-console.log(env.VITE_APP_TITLE);
+console.log(env.VITE_APP_TITLE)
 ```
-
-
-
-
-
 
 ## Routing
 
@@ -95,7 +87,7 @@ Now that you have two routes you can use a `Link` component to navigate between 
 To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
 
 ```tsx
-import { Link } from "@tanstack/react-router";
+import { Link } from '@tanstack/react-router'
 ```
 
 Then anywhere in your JSX you can use it like so:
@@ -163,11 +155,11 @@ const getServerTime = createServerFn({
 // Use in a component
 function MyComponent() {
   const [time, setTime] = useState('')
-  
+
   useEffect(() => {
     getServerTime().then(setTime)
   }, [])
-  
+
   return <div>Server time: {time}</div>
 }
 ```

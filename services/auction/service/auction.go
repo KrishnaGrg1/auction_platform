@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"connectrpc.com/connect"
@@ -57,7 +58,15 @@ func (s *Service) CreateAuction(ctx context.Context, req *connect.Request[v1.Cre
 	default:
 		return nil, helper.RpcError(connect.CodeInvalidArgument, "Invalid auction type")
 	}
+	if input.Type == v1.AuctionType_AUCTION_TYPE_DUTCH {
+		if input.DropAmount <= 0 || input.DropInterval <= 0 {
+			return nil, helper.RpcError(connect.CodeInvalidArgument, "drop amount is less")
+		}
+	}
 
+	if input.StartingPrice > math.MaxInt32 {
+		return nil, helper.RpcError(connect.CodeInvalidArgument, "starting_price too large")
+	}
 	// Build auction parameters based on type
 	auctionParams := db.CreateAuctionParams{
 		SellerID:      seller_id,
@@ -1018,4 +1027,31 @@ func (s *Service) EndAuction(ctx context.Context, req *connect.Request[v1.EndAuc
 		CreatedAt:       timestamppb.New(endedAuction.CreatedAt.Time),
 		UpdatedAt:       timestamppb.New(endedAuction.UpdatedAt.Time),
 	}, nil
+}
+
+func (s *Service) GetMe(ctx context.Context, req *connect.Request[v1.GetMeRequest]) (*v1.User, error) {
+	userId, ok := ctx.Value(auth.UserIDKey).(string)
+	if !ok || userId == "" {
+		return nil, helper.RpcError(connect.CodeUnauthenticated, "Missing user authentication")
+	}
+	parsedUserId, err := helper.ParsedStringToUUID(userId)
+	if err != nil {
+		return nil, err
+	}
+	existingUser, err := s.store.Queries.GetUserByID(ctx, parsedUserId)
+	if err != nil {
+		return nil, err
+	}
+	user := &v1.User{
+		Id:               existingUser.ID.String(),
+		Email:            existingUser.Email,
+		FirstName:        existingUser.FirstName,
+		LastName:         existingUser.LastName,
+		AvailableBalance: existingUser.AvailableBalance,
+		HeldBalance:      existingUser.HeldBalance,
+		IsVerified:       existingUser.IsVerified,
+		CreatedAt:        timestamppb.New(existingUser.CreatedAt.Time),
+		UpdatedAt:        timestamppb.New(existingUser.UpdatedAt.Time),
+	}
+	return user, nil
 }

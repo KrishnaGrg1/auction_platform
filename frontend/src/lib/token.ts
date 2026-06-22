@@ -1,4 +1,5 @@
 import Cookies from 'js-cookie'
+import { getRequest } from '@tanstack/react-start/server'
 
 const TOKEN_KEY = 'token'
 
@@ -19,11 +20,17 @@ export const setAuth = (token: string) => {
 /**
  * Get authentication token from cookies (client-side only)
  */
-export const getToken = () => {
-  if (typeof window !== 'undefined') {
-    return Cookies.get(TOKEN_KEY) || null
-  }
-  return null
+export function getAuthToken(): string | null {
+  const request = getRequest()
+
+  const cookie = request.headers.get('cookie')
+
+  return (
+    cookie
+      ?.split('; ')
+      .find((c) => c.startsWith('token='))
+      ?.slice('token='.length) ?? null
+  )
 }
 
 /**
@@ -40,6 +47,6 @@ export const logout = () => {
  * Check if user is authenticated
  */
 export const isAuthenticated = () => {
-  const token = getToken()
-  return token !== null && token !== undefined && token !== ''
+  const token = getAuthToken()
+  return token !== null && token !== ''
 }

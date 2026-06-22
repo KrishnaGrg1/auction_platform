@@ -60,7 +60,9 @@ func (h *Handler) GetAuctionsList(ctx context.Context, req *connect.Request[v1.G
 		return nil, err
 	}
 	return connect.NewResponse(&v1.GetAuctionsListResponse{
-		Auctions: auctions,
+		Auctions:  auctions,
+		Message:   "Successfully get all auctions",
+		Timestamp: timestamppb.New(time.Now()),
 	}), nil
 }
 
@@ -70,7 +72,9 @@ func (h *Handler) GetUserAuctions(ctx context.Context, req *connect.Request[v1.G
 		return nil, err
 	}
 	return connect.NewResponse(&v1.GetUserAuctionsResponse{
-		Auctions: auctions,
+		Auctions:  auctions,
+		Message:   "Successfully get all auctions of user",
+		Timestamp: timestamppb.New(time.Now()),
 	}), nil
 }
 
@@ -96,4 +100,17 @@ func (h *Handler) CancelAuction(ctx context.Context, req *connect.Request[v1.Can
 		Message:   "Cancelled auction successfully",
 		Timestamp: timestamppb.New(time.Now()),
 	}), nil
+}
+
+func (h *Handler) GetMe(ctx context.Context, req *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error) {
+	user, err := h.service.GetMe(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	res := connect.NewResponse(&v1.GetMeResponse{
+		User:      user,
+		Message:   "Get user successfully",
+		Timestamp: timestamppb.New(time.Now()),
+	})
+	return res, nil
 }

@@ -33,10 +33,10 @@ func main() {
 
 	// Create HTTP mux
 	mux := http.NewServeMux()
-
 	// Register auth service handlers (no auth interceptor for auth service)
 	path, handler := auction_platformv1connect.NewAuthServiceHandler(authSvc,
-		connect.WithInterceptors(validate.NewInterceptor()))
+		connect.WithInterceptors(validate.NewInterceptor()),
+	)
 	mux.Handle(path, handler)
 
 	// Health check endpoint

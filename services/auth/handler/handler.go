@@ -81,3 +81,16 @@ func (h *Handler) Verify(ctx context.Context, req *connect.Request[v1.VerifyRequ
 	)
 	return res, nil
 }
+
+func (h *Handler) GetMe(ctx context.Context, req *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error) {
+	user, err := h.authService.GetMe(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	res := connect.NewResponse(&v1.GetMeResponse{
+		User:      user,
+		Message:   "Get user successfully",
+		Timestamp: timestamppb.New(time.Now()),
+	})
+	return res, nil
+}

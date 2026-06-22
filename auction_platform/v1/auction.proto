@@ -7,6 +7,7 @@ option go_package = "github.com/KrishnaGrg1/auction_platform/gen/auction_platfor
 
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
+import "auction_platform/v1/auth.proto"; 
 
 service AuctionService {
     rpc CreateAuction(CreateAuctionRequest) returns (CreateAuctionResponse);
@@ -16,6 +17,7 @@ service AuctionService {
     rpc GetUserAuctions(GetUserAuctionsRequest) returns (GetUserAuctionsResponse);
     rpc EndAuction(EndAuctionRequest) returns (EndAuctionResponse);
     rpc CancelAuction(CancelAuctionRequest) returns (CancelAuctionResponse);
+    rpc GetMe(GetMeRequest) returns (GetMeResponse);
 }
 
 message Auction {
@@ -96,13 +98,8 @@ message CreateAuctionRequest {
   ];
 
   // Dutch auction only
-  int64 drop_amount = 7 [
-    (buf.validate.field).int64.gte = 0
-  ];
-
-  int32 drop_interval = 8 [
-    (buf.validate.field).int32.gt = 0
-  ];
+  int64 drop_amount = 7;     // no field-level validation
+  int32 drop_interval = 8;   // no field-level validation
 
   bool extend_on_bid = 9;
 
@@ -263,3 +260,12 @@ message CancelAuctionResponse{
     string message = 2;
     google.protobuf.Timestamp timestamp = 3;
 }
+
+
+message GetMeRequest {}
+
+ message GetMeResponse{
+  User user = 1;
+  string message = 2;
+  google.protobuf.Timestamp timestamp = 3; 
+ }

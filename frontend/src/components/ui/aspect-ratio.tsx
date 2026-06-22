@@ -1,4 +1,4 @@
-import { AspectRatio as AspectRatioPrimitive } from "radix-ui"
+import { AspectRatio as AspectRatioPrimitive } from 'radix-ui'
 
 function AspectRatio({
   ...props

@@ -8,8 +8,7 @@ plugins:
     out: gen
     opt:
       - paths=source_relative
-  # TypeScript frontend (new)
+  # TypeScript frontend — protoc-gen-es v2 handles both messages AND services
   - plugin: es
-    path: frontend/node_modules/.bin/protoc-gen-es
     out: frontend/src/gen
     opt: target=ts

@@ -3,6 +3,14 @@
 import { tanstackConfig } from '@tanstack/eslint-config'
 
 export default [
+  {
+    ignores: [
+      'src/routeTree.gen.ts',
+      'src/components/ui/**',
+      'eslint.config.js',
+      'prettier.config.js',
+    ],
+  },
   ...tanstackConfig,
   {
     rules: {
