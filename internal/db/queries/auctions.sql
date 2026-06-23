@@ -108,9 +108,16 @@ WHERE id        = $1
 RETURNING *;
 
 -- name: GetAuctionsList :many
-SELECT *
-FROM auctions
-WHERE status = $1
-  AND type = $2
-ORDER BY end_time DESC
-LIMIT $3 OFFSET $4;
+SELECT * FROM auctions
+WHERE
+    ($1::text = '' OR type::text   = $1) AND
+    ($2::text = '' OR status::text = $2)
+ORDER BY created_at DESC
+LIMIT  $3
+OFFSET $4;
+
+-- name: CountAuctionsList :one
+SELECT COUNT(*) FROM auctions
+WHERE
+    ($1::text = '' OR type::text   = $1) AND
+    ($2::text = '' OR status::text = $2);

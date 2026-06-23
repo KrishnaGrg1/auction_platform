@@ -55,15 +55,7 @@ func (h *Handler) GetAuctionDetailsById(ctx context.Context, req *connect.Reques
 }
 
 func (h *Handler) GetAuctionsList(ctx context.Context, req *connect.Request[v1.GetAuctionsListRequest]) (*connect.Response[v1.GetAuctionsListResponse], error) {
-	auctions, err := h.service.GetAuctionsList(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&v1.GetAuctionsListResponse{
-		Auctions:  auctions,
-		Message:   "Successfully get all auctions",
-		Timestamp: timestamppb.New(time.Now()),
-	}), nil
+	return h.service.GetAuctionsList(ctx, req)
 }
 
 func (h *Handler) GetUserAuctions(ctx context.Context, req *connect.Request[v1.GetUserAuctionsRequest]) (*connect.Response[v1.GetUserAuctionsResponse], error) {

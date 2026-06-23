@@ -22,14 +22,22 @@ export const createAuctionSchema = z.object({
 
 export type CreateAuctionSchema = z.infer<typeof createAuctionSchema>
 
-export const getAuctionByIdSchema=z.object({
-  auction_id:z.string().uuid()
+export const getAuctionByIdSchema = z.object({
+  auction_id: z.string().uuid(),
 })
-export type GetAuctionByIdSchema=z.infer<typeof getAuctionByIdSchema>
+export type GetAuctionByIdSchema = z.infer<typeof getAuctionByIdSchema>
 
-export const bidAuctionSchema=z.object({
-  auction_id:z.string().uuid(),
+export const bidAuctionSchema = z.object({
+  auction_id: z.string().uuid(),
   amount: z.number().positive(),
-    is_auto_bid: z.boolean()
+  is_auto_bid: z.boolean(),
 })
-export type BidAuctionSchema=z.infer<typeof bidAuctionSchema>
+export type BidAuctionSchema = z.infer<typeof bidAuctionSchema>
+
+export const getAuctionsListSchema = z.object({
+  status: z.number().optional(),
+  type: z.number().optional(),
+  page: z.number().min(1).default(1),
+  page_size: z.number().min(1).max(100).default(20),
+})
+export type GetAuctionsListSchema = z.infer<typeof getAuctionsListSchema>

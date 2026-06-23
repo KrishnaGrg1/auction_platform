@@ -15,6 +15,7 @@ type Querier interface {
 	// can only cancel before it starts
 	CancelAuction(ctx context.Context, arg CancelAuctionParams) (Auction, error)
 	ChangePassword(ctx context.Context, arg ChangePasswordParams) (User, error)
+	CountAuctionsList(ctx context.Context, arg CountAuctionsListParams) (int64, error)
 	// original_end_time = end_time at creation
 	CreateAuction(ctx context.Context, arg CreateAuctionParams) (Auction, error)
 	CreateAuctionHistory(ctx context.Context, arg CreateAuctionHistoryParams) (AuctionHistory, error)

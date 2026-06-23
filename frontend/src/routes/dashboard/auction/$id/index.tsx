@@ -1,7 +1,6 @@
 import { createFileRoute, Link, notFound } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { getAuctionById } from '#/lib/services/auction.services'
-
 import {
   AuctionStatus,
   AuctionType,
@@ -13,69 +12,131 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { Separator } from '#/components/ui/separator'
 import { Alert, AlertDescription } from '#/components/ui/alert'
+import { DashboardLayout } from '#/components/dashboard-layout'
 import { ArrowLeft, Gavel, TrendingDown, ShieldCheck, Info } from 'lucide-react'
 import { useBidAuction } from '#/hooks/use-auction'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { meQueryOptions } from '#/hooks/use-auction'
+import { useAuctionSocket } from '#/hooks/use-auction-socket'
+import { AuctionSocketStatus } from '#/components/auction-socket-status'
+import { useState, useCallback } from 'react'
+import type { AuctionEvent } from '#/hooks/use-auction-socket'
+import { toast } from 'sonner'
+
 export const Route = createFileRoute('/dashboard/auction/$id/')({
   component: AuctionDetailPage,
-
-  // Fetch on navigation, cached by the router, retried/staled per your
-  // router defaults. Throws → caught by errorComponent below.
   loader: async ({ params }) => {
     try {
       const resp = await getAuctionById({ data: { auction_id: params.id } })
-      if (!resp.auction) {
-        throw notFound()
-      }
+      if (!resp.auction) throw notFound()
       return resp
     } catch (err) {
-      if (err && typeof err === 'object' && 'isNotFound' in err) {
-        throw err
-      }
+      if (err && typeof err === 'object' && 'isNotFound' in err) throw err
       throw notFound()
     }
   },
-
   notFoundComponent: () => <AuctionNotFound />,
-
   pendingComponent: () => <AuctionDetailSkeleton />,
 })
 
 function AuctionDetailPage() {
+  const { id: auctionId } = Route.useParams()
   const data = Route.useLoaderData()
+  const auction = data.auction!
+  const queryClient = useQueryClient()
+
   const {
     mutate: placeBid,
     isPending: isBidding,
     error: bidError,
   } = useBidAuction()
-  const { data: userDetails, isPending, error } = useQuery(meQueryOptions())
-  const user = userDetails?.user!
-  const auction = data.auction!
-  const isDutch = auction.type === AuctionType.DUTCH
-  const isOwner = user?.id === auction.sellerId
-  const isActive = auction.status === AuctionStatus.ACTIVE
-  const isCurrentWinner = user?.id === auction.currentBidderId
-  if (isPending) {
-    return <div>Loading...</div>
-  }
+  const { data: userDetails, isPending: userPending } =
+    useQuery(meQueryOptions())
 
-  if (error) {
-    return <div>{error.message}</div>
-  }
+  // ── live price state — updated by WebSocket ──────────────────────────
+  const [livePrice, setLivePrice] = useState<number>(
+    Number(auction.currentPrice),
+  )
+  const [liveBidderId, setLiveBidderId] = useState<string>(
+    auction.currentBidderId ?? '',
+  )
+  const [liveStatus, setLiveStatus] = useState<AuctionStatus>(auction.status)
+
+  // ── WebSocket event handlers ──────────────────────────────────────────
+  const handleNewBid = useCallback(
+    (event: AuctionEvent) => {
+      if (event.amount !== undefined) {
+        setLivePrice(event.amount)
+      }
+      if (event.user_id) {
+        setLiveBidderId(event.user_id)
+      }
+      // invalidate query so full data refreshes in background
+      queryClient.invalidateQueries({ queryKey: ['auction', auctionId] })
+      toast.info(`New bid: ${formatCents(event.amount ?? 0)}`)
+    },
+    [auctionId, queryClient],
+  )
+
+  const handleAuctionEnded = useCallback(
+    (event: AuctionEvent) => {
+      setLiveStatus(AuctionStatus.ENDED)
+      queryClient.invalidateQueries({ queryKey: ['auction', auctionId] })
+      if (event.type === 'auction_won') {
+        toast.success('Auction won!')
+      } else {
+        toast.info('Auction has ended')
+      }
+    },
+    [auctionId, queryClient],
+  )
+
+  const handlePriceDropped = useCallback((event: AuctionEvent) => {
+    if (event.amount !== undefined) {
+      setLivePrice(event.amount)
+    }
+  }, [])
+
+  const handleExtended = useCallback(
+    (_event: AuctionEvent) => {
+      queryClient.invalidateQueries({ queryKey: ['auction', auctionId] })
+      toast.info('Auction time extended due to late bid')
+    },
+    [auctionId, queryClient],
+  )
+
+  // ── connect to WebSocket ──────────────────────────────────────────────
+  const { status: socketStatus, reconnect } = useAuctionSocket({
+    auctionId,
+    userId: userDetails?.user?.id,
+    enabled: liveStatus === AuctionStatus.ACTIVE,
+    onNewBid: handleNewBid,
+    onAuctionEnded: handleAuctionEnded,
+    onPriceDropped: handlePriceDropped,
+    onExtended: handleExtended,
+  })
+
+  // ── derived flags ─────────────────────────────────────────────────────
+  const isDutch = auction.type === AuctionType.DUTCH
+  const isOwner = userDetails?.user?.id === auction.sellerId
+  const isActive = liveStatus === AuctionStatus.ACTIVE
+  const isCurrentWinner = userDetails?.user?.id === liveBidderId
+
+  if (userPending) return <AuctionDetailSkeleton />
+
   return (
-    <div className="min-h-screen py-8 px-4 bg-muted/30">
-      <div className="max-w-4xl mx-auto">
+    <DashboardLayout>
+      <div className="max-w-4xl mx-auto space-y-5">
         <Link
           to="/dashboard/auction"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-5 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />
           Back to auctions
         </Link>
 
         <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-          {/* ── Left — details ── */}
+          {/* ── Left — details ─────────────────────────────────────── */}
           <div className="space-y-5">
             <Card>
               <CardContent className="p-6">
@@ -83,7 +144,7 @@ function AuctionDetailPage() {
                   <h1 className="text-xl font-bold leading-tight">
                     {auction.title}
                   </h1>
-                  <StatusBadge status={auction.status} />
+                  <StatusBadge status={liveStatus} />
                 </div>
 
                 <div className="flex items-center gap-2 mb-4">
@@ -126,7 +187,7 @@ function AuctionDetailPage() {
                   <DetailRow
                     label="Reserve price"
                     value={
-                      auction.reservedPrice > 0
+                      Number(auction.reservedPrice) > 0
                         ? formatCents(auction.reservedPrice)
                         : 'No reserve'
                     }
@@ -159,16 +220,28 @@ function AuctionDetailPage() {
             </Card>
           </div>
 
-          {/* ── Right — bid panel ── */}
+          {/* ── Right — bid panel ──────────────────────────────────── */}
           <div className="space-y-5">
             <Card className="sticky top-6">
               <CardContent className="p-6">
-                <p className="text-xs text-muted-foreground mb-1">
-                  {isDutch ? 'Current price' : 'Current bid'}
+                {/* live connection indicator */}
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-muted-foreground">
+                    {isDutch ? 'Current price' : 'Current bid'}
+                  </p>
+                  {isActive && (
+                    <AuctionSocketStatus
+                      status={socketStatus}
+                      onRetry={reconnect}
+                    />
+                  )}
+                </div>
+
+                {/* live price — updates in real time */}
+                <p className="text-3xl font-bold mb-1 tabular-nums transition-all">
+                  {formatCents(livePrice)}
                 </p>
-                <p className="text-3xl font-bold mb-1">
-                  {formatCents(auction.currentPrice)}
-                </p>
+
                 {isCurrentWinner && isActive && (
                   <Badge variant="default" className="gap-1 text-xs mb-3">
                     <ShieldCheck className="size-3" />
@@ -178,6 +251,7 @@ function AuctionDetailPage() {
 
                 <Separator className="my-4" />
 
+                {/* bid panel states — explicit per-status */}
                 {isOwner ? (
                   <Alert>
                     <Info className="size-4" />
@@ -185,37 +259,52 @@ function AuctionDetailPage() {
                       You listed this auction — bidding is disabled for sellers.
                     </AlertDescription>
                   </Alert>
-                ) : !isActive ? (
+                ) : liveStatus === AuctionStatus.SCHEDULED ? (
                   <Alert>
                     <Info className="size-4" />
                     <AlertDescription>
-                      {auction.status === AuctionStatus.SCHEDULED
-                        ? 'This auction has not started yet.'
-                        : auction.status === AuctionStatus.ENDED
-                          ? 'This auction has ended.'
-                          : 'This auction was cancelled.'}
+                      This auction hasn't started yet.
                     </AlertDescription>
                   </Alert>
-                ) : (
+                ) : liveStatus === AuctionStatus.ENDED ? (
+                  <Alert>
+                    <Info className="size-4" />
+                    <AlertDescription>This auction has ended.</AlertDescription>
+                  </Alert>
+                ) : liveStatus === AuctionStatus.CANCELLED ? (
+                  <Alert>
+                    <Info className="size-4" />
+                    <AlertDescription>
+                      This auction was cancelled.
+                    </AlertDescription>
+                  </Alert>
+                ) : isActive ? (
                   <BidForm
                     auctionId={auction.id}
-                    currentPrice={auction.currentPrice}
+                    currentPrice={livePrice}
                     isDutch={isDutch}
                     placeBid={placeBid}
                     isBidding={isBidding}
                     bidError={bidError}
                   />
+                ) : (
+                  <Alert>
+                    <Info className="size-4" />
+                    <AlertDescription>
+                      This auction is not available for bidding.
+                    </AlertDescription>
+                  </Alert>
                 )}
               </CardContent>
             </Card>
           </div>
         </div>
       </div>
-    </div>
+    </DashboardLayout>
   )
 }
 
-/* ───────────────────────── Bid form ───────────────────────── */
+/* ─────────────────────────── Bid form ─────────────────────────── */
 function BidForm({
   auctionId,
   currentPrice,
@@ -236,9 +325,7 @@ function BidForm({
   const minBid = Number(currentPrice) + 100
 
   const form = useForm({
-    defaultValues: {
-      amount: isDutch ? Number(currentPrice) : minBid,
-    },
+    defaultValues: { amount: isDutch ? Number(currentPrice) : minBid },
     onSubmit: async ({ value }) => {
       placeBid({
         data: {
@@ -331,27 +418,18 @@ function BidForm({
   )
 }
 
-/* ───────────────────────── Shared bits ───────────────────────── */
+/* ─────────────────────────── Shared ───────────────────────────── */
 
 function StatusBadge({ status }: { status: AuctionStatus }) {
-  const map: Record<
-    number,
-    {
-      label: string
-      variant: 'default' | 'secondary' | 'outline' | 'destructive'
-    }
-  > = {
-    [AuctionStatus.SCHEDULED]: { label: 'Scheduled', variant: 'secondary' },
-    [AuctionStatus.ACTIVE]: { label: 'Live', variant: 'default' },
-    [AuctionStatus.ENDED]: { label: 'Ended', variant: 'outline' },
-    [AuctionStatus.CANCELLED]: { label: 'Cancelled', variant: 'destructive' },
-  }
-  const entry = map[status] ?? { label: 'Unknown', variant: 'outline' as const }
-  return (
-    <Badge variant={entry.variant} className="shrink-0">
-      {entry.label}
-    </Badge>
-  )
+  if (status === AuctionStatus.ACTIVE)
+    return <Badge variant="default">Live</Badge>
+  if (status === AuctionStatus.SCHEDULED)
+    return <Badge variant="secondary">Scheduled</Badge>
+  if (status === AuctionStatus.ENDED)
+    return <Badge variant="outline">Ended</Badge>
+  if (status === AuctionStatus.CANCELLED)
+    return <Badge variant="destructive">Cancelled</Badge>
+  return <Badge variant="outline">Unknown ({status})</Badge>
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {

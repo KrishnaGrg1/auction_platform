@@ -1,7 +1,12 @@
 import { createServerFn } from '@tanstack/react-start'
 import { ConnectError } from '@connectrpc/connect'
 import { createAuctionClient } from '../api/auction.api'
-import { bidAuctionSchema, createAuctionSchema, getAuctionByIdSchema } from '../schema/auction.schema'
+import {
+  bidAuctionSchema,
+  createAuctionSchema,
+  getAuctionByIdSchema,
+  getAuctionsListSchema,
+} from '../schema/auction.schema'
 import { timestampFromDate } from '@bufbuild/protobuf/wkt'
 import { AuctionType } from '#/gen/auction_platform/v1/auction_pb'
 import { getAuthToken } from '../token'
@@ -60,79 +65,18 @@ export const createAuction = createServerFn({ method: 'POST' })
     }
   })
 
-
 // export const getAllAuction=createServerFn({method:'GET'})
-
 
 export const getAuctionById = createServerFn({ method: 'POST' })
   .inputValidator((data) => getAuctionByIdSchema.parse(data))
-  .handler(async({data})=>{
-    try{
-     const token = getAuthToken()
-      const auctionClient = createAuctionClient(token ?? undefined)
-      const resp=await auctionClient.getAuctionDetailsById({
-        auctionId:data.auction_id
-      })
-      return resp
-    }catch (error: unknown) {
-      if (error instanceof ConnectError) {
-        const msg =
-          typeof error.rawMessage === 'string'
-            ? error.rawMessage
-            : error.message
-
-        throw new Error(msg)
-      }
-      if (error instanceof Error) {
-        throw error
-      }
-      throw new Error('Failed to create auction')
-    }
-  })
-
-
-
-export const bidAuction = createServerFn({ method: 'POST' })
-  .inputValidator((data) => bidAuctionSchema.parse(data))
-  .handler(async({data})=>{
-    try{
-     const token = getAuthToken()
-      const auctionClient = createAuctionClient(token ?? undefined)
-      const resp=await auctionClient.bidAuction({
-        auctionId:data.auction_id,
-        amount:BigInt(data.amount),
-        isAutoBid:data.is_auto_bid
-      })
-      return resp
-    }catch (error: unknown) {
-      if (error instanceof ConnectError) {
-        const msg =
-          typeof error.rawMessage === 'string'
-            ? error.rawMessage
-            : error.message
-
-        throw new Error(msg)
-      }
-      if (error instanceof Error) {
-        throw error
-      }
-      throw new Error('Failed to create auction')
-    }
-  })
-
-
-
-
-
-export const getMe = createServerFn({ method: 'POST' })
-  .handler(async () => {
+  .handler(async ({ data }) => {
     try {
-
       const token = getAuthToken()
-      const authClient = createAuctionClient(token ?? undefined)
-      const res = await authClient.getMe({
+      const auctionClient = createAuctionClient(token ?? undefined)
+      const resp = await auctionClient.getAuctionDetailsById({
+        auctionId: data.auction_id,
       })
-      return res
+      return resp
     } catch (error: unknown) {
       if (error instanceof ConnectError) {
         const msg =
@@ -142,7 +86,85 @@ export const getMe = createServerFn({ method: 'POST' })
 
         throw new Error(msg)
       }
-
-      throw new Error('Failed to Get Me')
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error('Failed to create auction')
     }
   })
+
+export const bidAuction = createServerFn({ method: 'POST' })
+  .inputValidator((data) => bidAuctionSchema.parse(data))
+  .handler(async ({ data }) => {
+    try {
+      const token = getAuthToken()
+      const auctionClient = createAuctionClient(token ?? undefined)
+      const resp = await auctionClient.bidAuction({
+        auctionId: data.auction_id,
+        amount: BigInt(data.amount),
+        isAutoBid: data.is_auto_bid,
+      })
+      return resp
+    } catch (error: unknown) {
+      if (error instanceof ConnectError) {
+        const msg =
+          typeof error.rawMessage === 'string'
+            ? error.rawMessage
+            : error.message
+
+        throw new Error(msg)
+      }
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error('Failed to create auction')
+    }
+  })
+
+// ✅ GET not POST for fetching
+export const getAuctionsList = createServerFn({ method: 'GET' })
+  .inputValidator((data) => getAuctionsListSchema.parse(data))
+  .handler(async ({ data }) => {
+    try {
+      const token = getAuthToken()
+      const auctionClient = createAuctionClient(token ?? undefined)
+
+      const req: Record<string, unknown> = {
+        page: data.page,
+        pageSize: data.page_size,
+      }
+      if (data.status && data.status !== 0) req.status = data.status
+      if (data.type && data.type !== 0) req.type = data.type
+
+      const resp = await auctionClient.getAuctionsList(req)
+      return resp
+    } catch (error: unknown) {
+      if (error instanceof ConnectError) {
+        throw new Error(
+          typeof error.rawMessage === 'string'
+            ? error.rawMessage
+            : error.message,
+        )
+      }
+      if (error instanceof Error) throw error
+      throw new Error('Failed to fetch auctions')
+    }
+  })
+
+export const getMe = createServerFn({ method: 'POST' }).handler(async () => {
+  try {
+    const token = getAuthToken()
+    const authClient = createAuctionClient(token ?? undefined)
+    const res = await authClient.getMe({})
+    return res
+  } catch (error: unknown) {
+    if (error instanceof ConnectError) {
+      const msg =
+        typeof error.rawMessage === 'string' ? error.rawMessage : error.message
+
+      throw new Error(msg)
+    }
+
+    throw new Error('Failed to Get Me')
+  }
+})

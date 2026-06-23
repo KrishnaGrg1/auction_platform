@@ -3,7 +3,6 @@ import { authClient } from '../api/auth.api'
 import { LoginUserSchema, RegisterUserSchema } from '../schema/auth.schema'
 import { ConnectError } from '@connectrpc/connect'
 
-
 export const register = createServerFn({ method: 'POST' })
   .validator((data) => RegisterUserSchema.parse(data))
   .handler(async ({ data }) => {
@@ -37,10 +36,10 @@ export const login = createServerFn({ method: 'POST' })
         email: data.email,
         password: data.password,
       })
-      console.log("data",res)
+      console.log('data', res)
       return res
     } catch (error: unknown) {
-      console.log("error ho ",error)
+      console.log('error ho ', error)
       if (error instanceof ConnectError) {
         const msg =
           typeof error.rawMessage === 'string'
@@ -52,5 +51,3 @@ export const login = createServerFn({ method: 'POST' })
       throw new Error('Failed to login')
     }
   })
-
-

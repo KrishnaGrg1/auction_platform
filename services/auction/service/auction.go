@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -434,8 +435,12 @@ func (s *Service) BidAuction(ctx context.Context, req *connect.Request[v1.BidAuc
 	}, nil
 }
 
-func (s *Service) GetAuctionDetailsById(ctx context.Context, req *connect.Request[v1.GetAuctionDetailsByIdRequest]) (*v1.Auction, error) {
+func (s *Service) GetAuctionDetailsById(
+	ctx context.Context,
+	req *connect.Request[v1.GetAuctionDetailsByIdRequest],
+) (*v1.Auction, error) {
 	input := req.Msg
+
 	auctionId, err := helper.ParsedStringToUUID(input.AuctionId)
 	if err != nil {
 		return nil, err
@@ -446,125 +451,86 @@ func (s *Service) GetAuctionDetailsById(ctx context.Context, req *connect.Reques
 		return nil, helper.RpcError(connect.CodeNotFound, "Auction not found")
 	}
 
-	return &v1.Auction{
-		Id:       auction.ID.String(),
-		SellerId: uuid.UUID(auction.SellerID.Bytes).String(),
-		CurrentBidderId: func() string {
-			if auction.CurrentBidderID.Valid {
-				return uuid.UUID(auction.CurrentBidderID.Bytes).String()
-			}
-			return ""
-		}(),
-		Title:         auction.Title,
-		Description:   auction.Description,
-		Type:          v1.AuctionType(v1.AuctionType_value["AUCTION_TYPE_"+string(auction.Type)]),
-		Status:        v1.AuctionStatus(v1.AuctionStatus_value["AUCTION_STATUS_"+string(auction.Status)]),
-		StartingPrice: int64(auction.StartingPrice),
-		ReservedPrice: int64(auction.ReservedPrice),
-		CurrentPrice:  int64(auction.CurrentPrice),
-		DropAmount: func() int64 {
-			if auction.DropAmount.Valid {
-				return int64(auction.DropAmount.Int32)
-			}
-			return 0
-		}(),
-		DropInterval: func() int32 {
-			if auction.DropInterval.Valid {
-				return auction.DropInterval.Int32
-			}
-			return 0
-		}(),
-		ExtendOnBid:     auction.ExtendOnBid,
-		ExtendMinutes:   auction.ExtendMinutes,
-		StartTime:       timestamppb.New(auction.StartTime.Time),
-		EndTime:         timestamppb.New(auction.EndTime.Time),
-		OriginalEndTime: timestamppb.New(auction.OriginalEndTime.Time),
-		CreatedAt:       timestamppb.New(auction.CreatedAt.Time),
-		UpdatedAt:       timestamppb.New(auction.UpdatedAt.Time),
-	}, nil
-
+	return mapAuctionToProto(auction), nil
 }
-
-func (s *Service) GetAuctionsList(ctx context.Context, req *connect.Request[v1.GetAuctionsListRequest]) ([]*v1.Auction, error) {
+func (s *Service) GetAuctionsList(
+	ctx context.Context,
+	req *connect.Request[v1.GetAuctionsListRequest],
+) (*connect.Response[v1.GetAuctionsListResponse], error) {
 
 	input := req.Msg
 
-	var auctionType db.AuctionType
+	// ── defaults ─────────────────────────────────────────
+	page := input.Page
+	pageSize := input.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	// ── map type (empty string = no filter = all) ────────
+	var auctionType string
 	switch input.Type {
 	case v1.AuctionType_AUCTION_TYPE_ENGLISH:
-		auctionType = db.AuctionTypeEnglish
+		auctionType = string(db.AuctionTypeEnglish)
 	case v1.AuctionType_AUCTION_TYPE_DUTCH:
-		auctionType = db.AuctionTypeDutch
+		auctionType = string(db.AuctionTypeDutch)
 	default:
-		return nil, helper.RpcError(connect.CodeInvalidArgument, "Invalid auction type")
+		auctionType = "" // empty = no filter
 	}
 
-	var status db.AuctionStatus
+	// ── map status (empty string = no filter = all) ──────
+	var auctionStatus string
 	switch input.Status {
 	case v1.AuctionStatus_AUCTION_STATUS_ACTIVE:
-		status = db.AuctionStatusActive
+		auctionStatus = string(db.AuctionStatusActive)
 	case v1.AuctionStatus_AUCTION_STATUS_CANCELLED:
-		status = db.AuctionStatusCancelled
+		auctionStatus = string(db.AuctionStatusCancelled)
 	case v1.AuctionStatus_AUCTION_STATUS_ENDED:
-		status = db.AuctionStatusEnded
+		auctionStatus = string(db.AuctionStatusEnded)
 	case v1.AuctionStatus_AUCTION_STATUS_SCHEDULED:
-		status = db.AuctionStatusScheduled
-	case v1.AuctionStatus_AUCTION_STATUS_UNSPECIFIED:
-		status = db.AuctionStatusScheduled
+		auctionStatus = string(db.AuctionStatusScheduled)
 	default:
-		return nil, helper.RpcError(connect.CodeInvalidArgument, "Invalid auction status")
+		auctionStatus = "" // empty = no filter
 	}
-	limt := input.Page
-	skip := (input.Page - 1) * (input.PageSize)
+
+	// ── fetch auctions ────────────────────────────────────
 	auctions, err := s.store.Queries.GetAuctionsList(ctx, db.GetAuctionsListParams{
-		Status: status,
-		Type:   auctionType,
-		Limit:  limt,
-		Offset: skip,
+		Column1: auctionType,   // sqlc names these Column1..N
+		Column2: auctionStatus, // when params are cast expressions
+		Limit:   pageSize,
+		Offset:  offset,
 	})
 	if err != nil {
-		return nil, helper.RpcError(connect.CodeInternal, "Failed to create auction: "+err.Error())
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to get auctions: "+err.Error())
 	}
+
+	// ── total count for pagination ────────────────────────
+	totalCount, err := s.store.Queries.CountAuctionsList(ctx, db.CountAuctionsListParams{
+		Column1: auctionType,
+		Column2: auctionStatus,
+	})
+	if err != nil {
+		return nil, helper.RpcError(connect.CodeInternal, "Failed to count auctions: "+err.Error())
+	}
+
+	// ── map db rows → proto ───────────────────────────────
 	auctionList := make([]*v1.Auction, 0, len(auctions))
 	for _, auction := range auctions {
-		auctionList = append(auctionList, &v1.Auction{
-			Id:       auction.ID.String(),
-			SellerId: uuid.UUID(auction.SellerID.Bytes).String(),
-			CurrentBidderId: func() string {
-				if auction.CurrentBidderID.Valid {
-					return uuid.UUID(auction.CurrentBidderID.Bytes).String()
-				}
-				return ""
-			}(),
-			Title:         auction.Title,
-			Description:   auction.Description,
-			Type:          v1.AuctionType(v1.AuctionType_value["AUCTION_TYPE_"+string(auction.Type)]),
-			Status:        v1.AuctionStatus(v1.AuctionStatus_value["AUCTION_STATUS_"+string(auction.Status)]),
-			StartingPrice: int64(auction.StartingPrice),
-			ReservedPrice: int64(auction.ReservedPrice),
-			CurrentPrice:  int64(auction.CurrentPrice),
-			DropAmount: func() int64 {
-				if auction.DropAmount.Valid {
-					return int64(auction.DropAmount.Int32)
-				}
-				return 0
-			}(),
-			DropInterval: func() int32 {
-				if auction.DropInterval.Valid {
-					return auction.DropInterval.Int32
-				}
-				return 0
-			}(),
-			ExtendOnBid:     auction.ExtendOnBid,
-			ExtendMinutes:   auction.ExtendMinutes,
-			StartTime:       timestamppb.New(auction.StartTime.Time),
-			EndTime:         timestamppb.New(auction.EndTime.Time),
-			OriginalEndTime: timestamppb.New(auction.OriginalEndTime.Time),
-			CreatedAt:       timestamppb.New(auction.CreatedAt.Time),
-			UpdatedAt:       timestamppb.New(auction.UpdatedAt.Time),
-		})
+		auctionList = append(auctionList, mapAuctionToProto(auction))
 	}
-	return auctionList, nil
+
+	return connect.NewResponse(&v1.GetAuctionsListResponse{
+		Auctions:   auctionList,
+		TotalCount: int32(totalCount),
+		Page:       page,
+		PageSize:   pageSize,
+		Message:    "Auctions fetched successfully",
+		Timestamp:  timestamppb.Now(),
+	}), nil
 }
 
 func (s *Service) GetUserAuctions(ctx context.Context, req *connect.Request[v1.GetUserAuctionsRequest]) ([]*v1.Auction, error) {
@@ -1054,4 +1020,56 @@ func (s *Service) GetMe(ctx context.Context, req *connect.Request[v1.GetMeReques
 		UpdatedAt:        timestamppb.New(existingUser.UpdatedAt.Time),
 	}
 	return user, nil
+}
+
+func mapAuctionToProto(auction db.Auction) *v1.Auction {
+	return &v1.Auction{
+		Id:       auction.ID.String(),
+		SellerId: uuid.UUID(auction.SellerID.Bytes).String(),
+		CurrentBidderId: func() string {
+			if auction.CurrentBidderID.Valid {
+				return uuid.UUID(auction.CurrentBidderID.Bytes).String()
+			}
+			return ""
+		}(),
+		Title:       auction.Title,
+		Description: auction.Description,
+
+		// ✅ ToUpper fixes the lookup
+		Type: v1.AuctionType(
+			v1.AuctionType_value["AUCTION_TYPE_"+strings.ToUpper(string(auction.Type))],
+		),
+		Status: v1.AuctionStatus(
+			v1.AuctionStatus_value["AUCTION_STATUS_"+strings.ToUpper(string(auction.Status))],
+		),
+
+		StartingPrice: int64(auction.StartingPrice),
+		ReservedPrice: int64(auction.ReservedPrice),
+		CurrentPrice:  int64(auction.CurrentPrice),
+		DropAmount: func() int64 {
+			if auction.DropAmount.Valid {
+				return int64(auction.DropAmount.Int32)
+			}
+			return 0
+		}(),
+		DropInterval: func() int32 {
+			if auction.DropInterval.Valid {
+				return auction.DropInterval.Int32
+			}
+			return 0
+		}(),
+		LastDropTime: func() *timestamppb.Timestamp {
+			if auction.LastDropTime.Valid {
+				return timestamppb.New(auction.LastDropTime.Time)
+			}
+			return nil
+		}(),
+		ExtendOnBid:     auction.ExtendOnBid,
+		ExtendMinutes:   auction.ExtendMinutes,
+		StartTime:       timestamppb.New(auction.StartTime.Time),
+		EndTime:         timestamppb.New(auction.EndTime.Time),
+		OriginalEndTime: timestamppb.New(auction.OriginalEndTime.Time),
+		CreatedAt:       timestamppb.New(auction.CreatedAt.Time),
+		UpdatedAt:       timestamppb.New(auction.UpdatedAt.Time),
+	}
 }

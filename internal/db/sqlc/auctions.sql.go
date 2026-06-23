@@ -57,6 +57,25 @@ func (q *Queries) CancelAuction(ctx context.Context, arg CancelAuctionParams) (A
 	return i, err
 }
 
+const countAuctionsList = `-- name: CountAuctionsList :one
+SELECT COUNT(*) FROM auctions
+WHERE
+    ($1::text = '' OR type::text   = $1) AND
+    ($2::text = '' OR status::text = $2)
+`
+
+type CountAuctionsListParams struct {
+	Column1 string `json:"column_1"`
+	Column2 string `json:"column_2"`
+}
+
+func (q *Queries) CountAuctionsList(ctx context.Context, arg CountAuctionsListParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuctionsList, arg.Column1, arg.Column2)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAuction = `-- name: CreateAuction :one
 INSERT INTO auctions (
     seller_id,
@@ -401,25 +420,26 @@ func (q *Queries) GetAuctionsBySellerID(ctx context.Context, sellerID pgtype.UUI
 }
 
 const getAuctionsList = `-- name: GetAuctionsList :many
-SELECT id, seller_id, current_bidder_id, title, description, type, status, starting_price, reserved_price, current_price, drop_amount, drop_interval, last_drop_time, extend_on_bid, extend_minutes, start_time, end_time, original_end_time, created_at, updated_at
-FROM auctions
-WHERE status = $1
-  AND type = $2
-ORDER BY end_time DESC
-LIMIT $3 OFFSET $4
+SELECT id, seller_id, current_bidder_id, title, description, type, status, starting_price, reserved_price, current_price, drop_amount, drop_interval, last_drop_time, extend_on_bid, extend_minutes, start_time, end_time, original_end_time, created_at, updated_at FROM auctions
+WHERE
+    ($1::text = '' OR type::text   = $1) AND
+    ($2::text = '' OR status::text = $2)
+ORDER BY created_at DESC
+LIMIT  $3
+OFFSET $4
 `
 
 type GetAuctionsListParams struct {
-	Status AuctionStatus `json:"status"`
-	Type   AuctionType   `json:"type"`
-	Limit  int32         `json:"limit"`
-	Offset int32         `json:"offset"`
+	Column1 string `json:"column_1"`
+	Column2 string `json:"column_2"`
+	Limit   int32  `json:"limit"`
+	Offset  int32  `json:"offset"`
 }
 
 func (q *Queries) GetAuctionsList(ctx context.Context, arg GetAuctionsListParams) ([]Auction, error) {
 	rows, err := q.db.Query(ctx, getAuctionsList,
-		arg.Status,
-		arg.Type,
+		arg.Column1,
+		arg.Column2,
 		arg.Limit,
 		arg.Offset,
 	)

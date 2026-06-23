@@ -1,5 +1,5 @@
 import { useCreateAuction } from '#/hooks/use-auction'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { AuctionType } from '#/gen/auction_platform/v1/auction_pb'
 import {
@@ -24,6 +24,8 @@ import {
 } from '#/components/ui/select'
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
+import { DashboardLayout } from '#/components/dashboard-layout'
+import { ArrowLeft, Info } from 'lucide-react'
 
 export const Route = createFileRoute('/dashboard/auction/create')({
   component: RouteComponent,
@@ -56,25 +58,43 @@ function RouteComponent() {
   })
 
   return (
-    <div className="min-h-screen py-10 px-4 bg-muted/30">
-      <div className="max-w-3xl mx-auto">
-        {/* Page header */}
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              List an auction
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Buyers will see everything you enter below.
-            </p>
+    <DashboardLayout>
+      <div className="max-w-3xl mx-auto space-y-6">
+        {/* Back + header */}
+        <div>
+          <Link
+            to="/dashboard/auction"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
+          >
+            <ArrowLeft className="size-3.5" />
+            Back to auctions
+          </Link>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">
+                List an auction
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Buyers will see everything you enter below.
+              </p>
+            </div>
+            <Badge variant="secondary" className="shrink-0 mt-1">
+              Prices in cents
+            </Badge>
           </div>
-          <Badge variant="secondary" className="shrink-0 mt-1">
-            Prices in cents
-          </Badge>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 text-sm">
+          <StepDot active label="Item details" />
+          <StepLine />
+          <StepDot label="Format & pricing" />
+          <StepLine />
+          <StepDot label="Schedule" />
         </div>
 
         {createAuctionError && (
-          <Alert variant="destructive" className="mb-6">
+          <Alert variant="destructive">
             <AlertDescription>
               {createAuctionError instanceof Error
                 ? createAuctionError.message
@@ -91,10 +111,15 @@ function RouteComponent() {
           }}
           className="space-y-5"
         >
-          {/* ── Card 1 — Item details ───────────────────────────── */}
-          <Card>
+          {/* ── Card 1 — Item details ── */}
+          <Card id="step-1">
             <CardHeader>
-              <CardTitle className="text-base">Item details</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="flex size-5 items-center justify-center rounded-full bg-amber/10 text-[11px] font-bold text-amber">
+                  1
+                </span>
+                Item details
+              </CardTitle>
               <CardDescription>
                 Title and description shown to bidders
               </CardDescription>
@@ -168,10 +193,15 @@ function RouteComponent() {
             </CardContent>
           </Card>
 
-          {/* ── Card 2 — Format & pricing ───────────────────────── */}
-          <Card>
+          {/* ── Card 2 — Format & pricing ── */}
+          <Card id="step-2">
             <CardHeader>
-              <CardTitle className="text-base">Format & pricing</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="flex size-5 items-center justify-center rounded-full bg-amber/10 text-[11px] font-bold text-amber">
+                  2
+                </span>
+                Format & pricing
+              </CardTitle>
               <CardDescription>
                 English auctions go up, Dutch auctions go down
               </CardDescription>
@@ -269,7 +299,7 @@ function RouteComponent() {
                 </form.Field>
               </div>
 
-              {/* Dutch-only fields — appear inline, same card */}
+              {/* Dutch-only fields */}
               <form.Subscribe selector={(s) => s.values.type}>
                 {(type) =>
                   type === AuctionType.DUTCH ? (
@@ -346,10 +376,15 @@ function RouteComponent() {
             </CardContent>
           </Card>
 
-          {/* ── Card 3 — Schedule & anti-snipe ──────────────────── */}
-          <Card>
+          {/* ── Card 3 — Schedule & anti-snipe ── */}
+          <Card id="step-3">
             <CardHeader>
-              <CardTitle className="text-base">Schedule</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="flex size-5 items-center justify-center rounded-full bg-amber/10 text-[11px] font-bold text-amber">
+                  3
+                </span>
+                Schedule
+              </CardTitle>
               <CardDescription>When bidding opens and closes</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -481,7 +516,7 @@ function RouteComponent() {
               </form.Subscribe>
             </CardContent>
 
-            <CardFooter>
+            <CardFooter className="flex-col gap-2">
               <form.Subscribe
                 selector={(s) => ({
                   canSubmit: s.canSubmit,
@@ -500,10 +535,30 @@ function RouteComponent() {
                   </Button>
                 )}
               </form.Subscribe>
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Info className="size-3" />
+                All prices are in cents (e.g. 500¢ = $5.00)
+              </p>
             </CardFooter>
           </Card>
         </form>
       </div>
-    </div>
+    </DashboardLayout>
   )
+}
+
+function StepDot({ active, label }: { active?: boolean; label: string }) {
+  return (
+    <span
+      className={`text-xs font-medium px-2 py-0.5 rounded-full transition-colors ${
+        active ? 'bg-amber text-white' : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {label}
+    </span>
+  )
+}
+
+function StepLine() {
+  return <span className="h-px flex-1 bg-border" />
 }

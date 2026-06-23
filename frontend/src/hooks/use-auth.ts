@@ -1,6 +1,6 @@
 import { login, register } from '#/lib/services/auth.services'
 import { setAuth } from '#/lib/token'
-import { useMutation} from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 
@@ -32,4 +32,3 @@ export function useRegister() {
     },
   })
 }
-
